@@ -1,0 +1,74 @@
+Gemini-S1 UART2 U-Boot / USB EFEX evidence
+Date: 2026-09-26 (Asia/Shanghai)
+Status: UBOOT_RUNTIME_PASSED / USB_EFEX_ENUMERATION_PENDING
+
+Test scope
+- Host: Apple Silicon macOS.
+- Target: Gemini-S1 (Allwinner R528S3).
+- UART: board UART2, 1,500,000 baud, 8N1, no flow control.
+- Firmware: gemini-s1-living-canvas-63311f0-factory-layout.img.
+- Flash request: keep data, verify after write, reboot after completion.
+- The operation remained bounded by the FES/SRV readiness gate.
+
+Host-side observations
+- FEL identity was detected as 0x00185900.
+- The 20,640-byte FES payload was transferred and executed.
+- DRAM initialization completed on the first status check after about 1.01 s.
+- FES-reported DRAM parameters were applied to the staged U-Boot header.
+- The 638,976-byte U-Boot payload was transferred to 0x40a00000 and execution
+  was requested successfully.
+- The device did not enumerate as an FES/SRV USB device within the bounded
+  45-second wait.
+
+UART2 observations
+- FES initialized clocks and the board, then completed DRAM initialization.
+- DRAM was identified as 128 MiB DDR3 at 792 MHz.
+- The built-in DRAM simple test passed.
+- U-Boot 2018.07 started and identified the sun8iw20 platform.
+- U-Boot received work mode 0x10 (USB product mode).
+- The SPI NAND path reached `NB1 : nand phy init ok` and loaded the environment
+  from `SUNXI_FLASH`.
+- U-Boot entered `run usb efex` and reported `usb init ok`.
+- USB control-endpoint handling then reported:
+
+    err: ep0 fifo_count 0 is not 8
+    sunxi usb err: read_request failed
+
+- The device repeatedly processed USB address requests but did not complete
+  host enumeration as the expected FES/SRV device.
+
+Selected UART2 transcript
+
+    FES: board init ok
+    FES: DRAM SIZE = 128 MB
+    FES: DRAM simple test OK.
+    FES: init dram ok
+
+    U-Boot 2018.07 (Sep 05 2025 - 10:52:42 +0000) Allwinner Technology
+    Model: sun8iw20
+    DRAM:  128 MiB
+    workmode = 16,storage type = 0
+    SpiNandHwInit: Start Nand Hardware initializing .....
+    NB1 : nand phy init ok
+    Loading Environment from SUNXI_FLASH... OK
+    sunxi work mode=0x10
+    run usb efex
+    usb init ok
+    err: ep0 fifo_count 0 is not 8
+    sunxi usb err: read_request failed
+
+Write boundary
+- The host did not obtain an FES/SRV session.
+- The operation did not reach storage query, MBR update, erase, or partition
+  download stages.
+- Persistent NAND write reached: no.
+- A power cycle returned the device to FEL for another controlled attempt.
+
+Conclusion
+- FEL_COMMUNICATION_PASSED
+- FES_RUNTIME_AND_DRAM_TEST_PASSED
+- UBOOT_RUNTIME_PASSED
+- SPI_NAND_UBOOT_INITIALIZATION_PASSED
+- USB_EFEX_DEVICE_INITIALIZATION_REPORTED
+- HOST_FES_SRV_ENUMERATION_NOT_YET_PASSED
+- PERSISTENT_NAND_WRITE_NOT_REACHED
