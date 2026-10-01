@@ -5,6 +5,8 @@ app_dir="${APP_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
 grep -q 'src/lc_ui.c' "$app_dir/Makefile"
 grep -q 'src/lc_ui.c' "$app_dir/CMakeLists.txt"
+grep -q 'src/lc_touch.c' "$app_dir/Makefile"
+grep -q 'src/lc_touch.c' "$app_dir/CMakeLists.txt"
 grep -q 'src/generated/lc_choice_assets.c' "$app_dir/Makefile"
 grep -q 'src/generated/lc_choice_assets.c' "$app_dir/CMakeLists.txt"
 grep -q 'lc_display_run_image_preview' "$app_dir/include/lc_display.h"
@@ -26,6 +28,8 @@ grep -q 'g_competition.reason' "$app_dir/src/lc_display.c"
 grep -q 'g_competition.price' "$app_dir/src/lc_display.c"
 grep -q 'LV_EVENT_CLICKED' "$app_dir/src/lc_display.c"
 grep -q 'lc_choice_tap' "$app_dir/src/lc_display.c"
+grep -q 'lc_touch_transform' "$app_dir/src/lc_display.c"
+grep -q 'lv_indev_set_read_cb' "$app_dir/src/lc_display.c"
 grep -q 'interactive preview requires a touch input device' \
   "$app_dir/src/lc_display.c"
 if grep -q 'TOMATO BEEF RICE' "$app_dir/src/lc_display.c"; then

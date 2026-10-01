@@ -1,7 +1,7 @@
 CC ?= cc
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -pedantic -O2
 
-TARGETS := test_lc_state test_lc_clock test_lc_dinner test_lc_memory test_lc_ui test_lc_voice test_lc_agent test_lc_agent_bridge test_lc_main test_lc_choice test_lc_backend_contract test_lc_competition
+TARGETS := test_lc_state test_lc_clock test_lc_dinner test_lc_memory test_lc_ui test_lc_voice test_lc_agent test_lc_agent_bridge test_lc_main test_lc_choice test_lc_backend_contract test_lc_competition test_lc_touch
 INCLUDES := -I../../include
 
 .PHONY: all test clean
@@ -44,6 +44,9 @@ test_lc_backend_contract: test_lc_backend_contract.c ../../src/lc_backend_contra
 test_lc_competition: test_lc_competition.c ../../src/lc_competition.c ../../include/lc_competition.h ../../include/lc_choice.h
 	$(CC) $(CFLAGS) $(INCLUDES) test_lc_competition.c ../../src/lc_competition.c -o $@
 
+test_lc_touch: test_lc_touch.c ../../src/lc_touch.c ../../include/lc_touch.h
+	$(CC) $(CFLAGS) $(INCLUDES) test_lc_touch.c ../../src/lc_touch.c -o $@
+
 test: $(TARGETS)
 	./test_lc_state
 	./test_lc_clock
@@ -57,6 +60,7 @@ test: $(TARGETS)
 	./test_lc_choice
 	./test_lc_backend_contract
 	./test_lc_competition
+	./test_lc_touch
 	bash ./test_skill_metadata.sh
 
 clean:

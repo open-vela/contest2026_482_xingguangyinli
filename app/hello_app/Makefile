@@ -16,6 +16,7 @@ MAINSRC = hello_app_main.c
 CSRCS = src/lc_state.c src/lc_clock.c src/lc_dinner.c src/lc_memory.c \
         src/lc_ui.c src/lc_voice.c src/lc_agent.c \
         src/lc_agent_bridge.c src/lc_choice.c src/lc_competition.c \
+        src/lc_touch.c \
         src/lc_backend_contract.c \
         src/lc_display.c \
         src/generated/lc_choice_assets.c

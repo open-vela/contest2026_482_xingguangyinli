@@ -13,6 +13,7 @@ if(CONFIG_LVX_USE_DEMO_CONTEST2026_482_LIVING_CANVAS)
       src/lc_agent.c
       src/lc_agent_bridge.c
       src/lc_choice.c
+      src/lc_touch.c
       src/lc_competition.c
       src/lc_backend_contract.c
       src/lc_display.c

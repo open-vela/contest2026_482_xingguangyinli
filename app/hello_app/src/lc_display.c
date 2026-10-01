@@ -1,6 +1,7 @@
 #include "lc_display.h"
 #include "lc_choice.h"
 #include "lc_competition.h"
+#include "lc_touch.h"
 #include "generated/lc_choice_assets.h"
 
 #ifdef __NuttX__
@@ -13,6 +14,8 @@
 #  include <string.h>
 #  include <sys/boardctl.h>
 #  include <unistd.h>
+
+#  include <nuttx/input/touchscreen.h>
 
 #  include <lvgl/lvgl.h>
 
@@ -107,6 +110,64 @@ static char g_competition_detail_text[LC_COMPETITION_REASON_MAX +
 static bool g_project_demo;
 
 static void choice_card_event_cb(lv_event_t *event);
+
+static int g_touch_fd = -1;
+static lv_indev_state_t g_touch_state = LV_INDEV_STATE_RELEASED;
+static lc_touch_point_t g_touch_point;
+
+static void portrait_touch_read(lv_indev_t *indev, lv_indev_data_t *data)
+{
+  struct touch_sample_s sample;
+  lv_display_t *display = lv_indev_get_display(indev);
+  ssize_t nbytes;
+
+  nbytes = read(g_touch_fd, &sample, sizeof(sample));
+  if (nbytes == (ssize_t)sizeof(sample) && sample.npoints > 0)
+    {
+      uint8_t flags = sample.point[0].flags;
+
+      if ((flags & (TOUCH_DOWN | TOUCH_MOVE)) != 0)
+        {
+          g_touch_point = lc_touch_transform(
+            sample.point[0].x, sample.point[0].y,
+            lv_display_get_horizontal_resolution(display),
+            lv_display_get_vertical_resolution(display), true);
+          g_touch_state = LV_INDEV_STATE_PRESSED;
+        }
+      else if ((flags & TOUCH_UP) != 0)
+        {
+          g_touch_state = LV_INDEV_STATE_RELEASED;
+        }
+    }
+
+  data->point.x = g_touch_point.x;
+  data->point.y = g_touch_point.y;
+  data->state = g_touch_state;
+}
+
+static void configure_portrait_touch(lv_nuttx_result_t *result)
+{
+  void *driver_data;
+
+  if (result->indev == NULL || result->disp == NULL ||
+      lv_display_get_horizontal_resolution(result->disp) != 240 ||
+      lv_display_get_vertical_resolution(result->disp) != 320)
+    {
+      return;
+    }
+
+  driver_data = lv_indev_get_driver_data(result->indev);
+  if (driver_data == NULL)
+    {
+      return;
+    }
+
+  g_touch_fd = *(int *)driver_data;
+  g_touch_state = LV_INDEV_STATE_RELEASED;
+  g_touch_point.x = 0;
+  g_touch_point.y = 0;
+  lv_indev_set_read_cb(result->indev, portrait_touch_read);
+}
 
 static void init_image_descriptor(lv_image_dsc_t *descriptor,
                                   const uint8_t *data,
@@ -592,6 +653,7 @@ static int run_artwork_preview(bool with_choices)
           return 2;
         }
 
+      configure_portrait_touch(&result);
       create_choice_overlay(screen, true);
     }
 
