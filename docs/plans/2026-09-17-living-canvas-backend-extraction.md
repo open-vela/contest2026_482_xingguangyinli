@@ -412,12 +412,12 @@ Run the renamed verification script and save only non-sensitive PASS lines.
 **Step 2: Synchronize the contest checkout into Ubuntu**
 
 Copy only tracked project files to
-`/home/abby/openvela-workspace/contest2026_482_xingguangyinli`. Do not copy
+`/path/to/openvela-workspace/contest2026_482_xingguangyinli`. Do not copy
 `.env`, databases, caches, credentials, or the legacy directory.
 
 **Step 3: Build the openvela target**
 
-Run the pinned Gemini S1 build from `/home/abby/openvela-workspace`, with
+Run the pinned Gemini S1 build from `/path/to/openvela-workspace`, with
 `LVX_USE_DEMO_CONTEST2026_482_LIVING_CANVAS=y` and `LV_USE_QRCODE=y`.
 
 Expected: exit 0 and `living_canvas_main` plus QR symbols present in the ELF.

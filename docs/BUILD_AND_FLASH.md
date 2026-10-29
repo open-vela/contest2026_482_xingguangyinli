@@ -13,7 +13,7 @@ planning statements where they differ.
 - Team manifest revision: `224850b197da7837e60b45573af26a479d366dd9`
 - Official docs revision: `cb0389919ea4fc86774702fb36c08ee9b1366e6c`
 - Allwinner board support revision: `1676386193f0e710121e710935f1757c0f34b662`
-- Pinned manifest: `/home/abby/openvela-workspace/pinned-manifest.xml`
+- Pinned manifest: `/path/to/openvela-workspace/pinned-manifest.xml`
 - `repo sync -c -j2`: completed successfully
 - Before AI integration, `distclean` plus exact restoration of known tracked build side effects left the intended source repositories clean.
 - Full post-build `repo status` contains expected manifest linkfile/nested-project overlays and generated build files; it is not described as globally clean.
@@ -48,10 +48,10 @@ The clean board baseline used the unmodified `nsh_minidisplay` configuration. It
 Verified build command in Ubuntu:
 
 ```bash
-cd /home/abby/openvela-workspace
+cd /path/to/openvela-workspace
 
 QEMU_LD_PREFIX=/usr/x86_64-linux-gnu \
-QEMU_SET_ENV=LD_LIBRARY_PATH=/home/abby/.local/share/openvela-x86_64-jammy/root/lib/x86_64-linux-gnu \
+QEMU_SET_ENV=LD_LIBRARY_PATH="$HOME/.local/share/openvela-x86_64-jammy/root/lib/x86_64-linux-gnu" \
 ./build.sh vendor/allwinnertech/boards/r528/r528s3-gemini-s1/configs/nsh_minidisplay/ -j2
 ```
 
@@ -86,7 +86,7 @@ Verified build command in Ubuntu:
 
 ```bash
 QEMU_LD_PREFIX=/usr/x86_64-linux-gnu \
-QEMU_SET_ENV=LD_LIBRARY_PATH=/home/abby/.local/share/openvela-x86_64-jammy/root/lib/x86_64-linux-gnu \
+QEMU_SET_ENV=LD_LIBRARY_PATH="$HOME/.local/share/openvela-x86_64-jammy/root/lib/x86_64-linux-gnu" \
 ./build.sh vendor/allwinnertech/boards/r528/r528s3-gemini-s1/configs/nsh_minidisplay/ -e -Wno-error -j2
 ```
 

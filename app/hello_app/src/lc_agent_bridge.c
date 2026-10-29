@@ -13,8 +13,14 @@ struct lc_agent_bridge_s
   pthread_mutex_t mutex;
   lc_agent_session_t *session;
   velaclaw_client_t *client;
-  unsigned int active_id;
+  unsigned int pending_callbacks;
   bool closing;
+};
+
+struct lc_agent_callback_s
+{
+  lc_agent_bridge_t *bridge;
+  unsigned int request_id;
 };
 
 static bool valid_client_name(const char *name)
@@ -40,25 +46,30 @@ static bool valid_client_name(const char *name)
 static void bridge_reply_callback(int status, const char *reply,
                                   void *cookie)
 {
-  lc_agent_bridge_t *bridge = cookie;
+  struct lc_agent_callback_s *callback = cookie;
+  lc_agent_bridge_t *bridge;
   lc_agent_status_t result;
 
-  if (bridge == NULL)
+  if (callback == NULL || callback->bridge == NULL)
     {
       return;
     }
 
+  bridge = callback->bridge;
   pthread_mutex_lock(&bridge->mutex);
   if (!bridge->closing)
     {
-      result = lc_agent_accept_reply(bridge->session, bridge->active_id,
+      result = lc_agent_accept_reply(bridge->session, callback->request_id,
                                      status, reply);
-      if (result == LC_AGENT_OK || result == LC_AGENT_REMOTE_ERROR)
-        {
-          bridge->active_id = 0u;
-        }
+      (void)result;
+    }
+
+  if (bridge->pending_callbacks > 0u)
+    {
+      bridge->pending_callbacks--;
     }
   pthread_mutex_unlock(&bridge->mutex);
+  free(callback);
 }
 
 lc_agent_bridge_t *lc_agent_bridge_open(lc_agent_session_t *session,
@@ -106,7 +117,7 @@ bool lc_agent_bridge_close(lc_agent_bridge_t *bridge)
 
   pthread_mutex_lock(&bridge->mutex);
   if (bridge->closing || bridge->session->status == LC_AGENT_WAITING ||
-      bridge->session->status == LC_AGENT_LOCKED)
+      bridge->pending_callbacks > 0u)
     {
       pthread_mutex_unlock(&bridge->mutex);
       return false;
@@ -129,6 +140,7 @@ lc_agent_status_t lc_agent_bridge_ask(lc_agent_bridge_t *bridge,
                                       uint32_t timeout_ms)
 {
   lc_agent_request_t request;
+  struct lc_agent_callback_s *callback;
   velaclaw_ask_req_t transport_request;
   lc_agent_status_t result;
   int transport_result;
@@ -145,6 +157,16 @@ lc_agent_status_t lc_agent_bridge_ask(lc_agent_bridge_t *bridge,
       return LC_AGENT_LOCKED;
     }
 
+  /* The flat local-client transport supports one callback at a time.  After
+   * our shorter UI timeout fires, wait for that transport callback to drain
+   * before accepting a retry so a late reply cannot be mistaken for it. */
+
+  if (bridge->pending_callbacks > 0u)
+    {
+      pthread_mutex_unlock(&bridge->mutex);
+      return LC_AGENT_BUSY;
+    }
+
   result = lc_agent_begin(bridge->session, text, now_ms, timeout_ms,
                           &request);
   if (result != LC_AGENT_OK)
@@ -153,21 +175,35 @@ lc_agent_status_t lc_agent_bridge_ask(lc_agent_bridge_t *bridge,
       return result;
     }
 
-  bridge->active_id = request.id;
+  callback = calloc(1u, sizeof(*callback));
+  if (callback == NULL)
+    {
+      result = lc_agent_accept_reply(bridge->session, request.id, -1, NULL);
+      pthread_mutex_unlock(&bridge->mutex);
+      return result;
+    }
+
+  callback->bridge = bridge;
+  callback->request_id = request.id;
+  bridge->pending_callbacks++;
   pthread_mutex_unlock(&bridge->mutex);
 
   memset(&transport_request, 0, sizeof(transport_request));
   transport_request.text = request.text;
   transport_request.timeout_ms = (int)request.timeout_ms;
   transport_result = velaclaw_ask(bridge->client, &transport_request,
-                                  bridge_reply_callback, bridge);
+                                  bridge_reply_callback, callback);
   if (transport_result < 0)
     {
       pthread_mutex_lock(&bridge->mutex);
-      result = lc_agent_accept_reply(bridge->session, bridge->active_id,
+      result = lc_agent_accept_reply(bridge->session, callback->request_id,
                                      transport_result, NULL);
-      bridge->active_id = 0u;
+      if (bridge->pending_callbacks > 0u)
+        {
+          bridge->pending_callbacks--;
+        }
       pthread_mutex_unlock(&bridge->mutex);
+      free(callback);
       return result;
     }
 
@@ -186,10 +222,6 @@ lc_agent_status_t lc_agent_bridge_poll(lc_agent_bridge_t *bridge,
 
   pthread_mutex_lock(&bridge->mutex);
   result = lc_agent_poll(bridge->session, now_ms);
-  if (result == LC_AGENT_TIMEOUT || result == LC_AGENT_CLOCK_ERROR)
-    {
-      bridge->active_id = 0u;
-    }
   pthread_mutex_unlock(&bridge->mutex);
   return result;
 }
@@ -223,4 +255,20 @@ lc_agent_status_t lc_agent_bridge_copy_reply(lc_agent_bridge_t *bridge,
   memcpy(reply, bridge->session->reply, length + 1u);
   pthread_mutex_unlock(&bridge->mutex);
   return LC_AGENT_OK;
+}
+
+bool lc_agent_bridge_can_retry(lc_agent_bridge_t *bridge)
+{
+  bool ready;
+
+  if (bridge == NULL)
+    {
+      return false;
+    }
+
+  pthread_mutex_lock(&bridge->mutex);
+  ready = !bridge->closing && bridge->pending_callbacks == 0u &&
+          bridge->session->status != LC_AGENT_WAITING;
+  pthread_mutex_unlock(&bridge->mutex);
+  return ready;
 }

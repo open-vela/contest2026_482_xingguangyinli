@@ -3,7 +3,7 @@ Recorded: 2026-09-14 Asia/Shanghai
 Completed: 2026-09-14 10:24:19 UTC
 
 Source
-  workspace: /home/abby/openvela-workspace
+  workspace: <OPENVELA_WORKSPACE>
   manifest branch: dev-ai-contest-2026
   team manifest revision: 224850b197da7837e60b45573af26a479d366dd9
   repo sync: completed successfully
@@ -25,7 +25,7 @@ Target
 
 Compatibility environment
   QEMU_LD_PREFIX=/usr/x86_64-linux-gnu
-  QEMU_SET_ENV=LD_LIBRARY_PATH=/home/abby/.local/share/openvela-x86_64-jammy/root/lib/x86_64-linux-gnu
+  QEMU_SET_ENV=LD_LIBRARY_PATH=<HOME>/.local/share/openvela-x86_64-jammy/root/lib/x86_64-linux-gnu
   verified Ubuntu amd64 zlib1g package SHA-256:
   9dc17e51a1be2d9ed63b7b84ef0e4e29c5abe6f1bc62cb03e7181483cce8a2f2
 

@@ -15,3 +15,15 @@
 *.key
 id_rsa*
 id_ed25519*
+
+# Host-test executables are rebuilt by app/hello_app/tests/host/Makefile.
+# Keep every source/script extension visible so new tests cannot be hidden.
+/app/hello_app/tests/host/test_lc_*
+!/app/hello_app/tests/host/test_lc_*.c
+!/app/hello_app/tests/host/test_lc_*.h
+!/app/hello_app/tests/host/test_lc_*.py
+!/app/hello_app/tests/host/test_lc_*.sh
+
+# Python cache files are never submission evidence.
+__pycache__/
+*.py[cod]

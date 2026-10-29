@@ -13,21 +13,29 @@ from PIL import Image, ImageOps
 
 
 APPROVED = {
-    "sitting.png": (
-        "b662dc623695ebf1f8044e9b1d1101056a504a6820cdafea9f21cb2dbb8577f9",
+    "newnew-sitting.png": (
+        "afa60369eb69cbf45088e0b74704bca8c905e03f93559752c8ad21758e420076",
         (1086, 1448),
     ),
-    "homedinner.png": (
+    "角色与元素UI/homedinner.png": (
         "0e033242db21a2d8e974c6b012ace82201e5678cbad94cf47f4dc098767dfbe3",
         (1254, 1254),
     ),
-    "mystery_box_ui.png": (
+    "角色与元素UI/mystery_box_ui.png": (
         "e73f0226adc3f30e289317d5315a66e42ff74ecd0e3ff9800e4453174c2204dd",
         (1024, 1024),
     ),
-    "takeout_bag_ui.png": (
+    "角色与元素UI/takeout_bag_ui.png": (
         "23519c2f7a565d5252a706c10a82df359e36126e93ffd1bfbb45d3309a51aff9",
         (1024, 1024),
+    ),
+    "角色与元素UI/chat-Bubble1.png": (
+        "5e6f546ab5ff85613786c0b9cd33047f3f03b390d142da8327920e2e829eeb94",
+        (1729, 910),
+    ),
+    "角色与元素UI/chat-Bubble2.png": (
+        "96caea7cc91779fe2ba3aa96bb99311f985262d76287b3974efa52892a261676",
+        (1728, 910),
     ),
 }
 
@@ -91,6 +99,13 @@ def _rgb565_le(image: Image.Image) -> bytes:
     return bytes(output)
 
 
+def _bubble_argb8888(path: Path) -> bytes:
+    # Mechanical native format conversion; preserve supplied alpha and artwork.
+    with Image.open(path) as source:
+        image = source.convert("RGBA").resize((96, 40), Image.Resampling.LANCZOS)
+        return image.tobytes("raw", "BGRA")
+
+
 def _format_array(name: str, data: bytes) -> str:
     lines = []
     for offset in range(0, len(data), 12):
@@ -119,12 +134,17 @@ def _header() -> str:
 #define LC_CARD_WIDTH 64u
 #define LC_CARD_HEIGHT 64u
 #define LC_CARD_BYTES 8192u
+#define LC_BUBBLE_WIDTH 96u
+#define LC_BUBBLE_HEIGHT 40u
+#define LC_BUBBLE_BYTES 15360u
 
 extern const uint8_t lc_bg_portrait[LC_BG_PORTRAIT_BYTES];
 extern const uint8_t lc_bg_landscape[LC_BG_LANDSCAPE_BYTES];
 extern const uint8_t lc_card_takeout[LC_CARD_BYTES];
 extern const uint8_t lc_card_mystery[LC_CARD_BYTES];
 extern const uint8_t lc_card_home[LC_CARD_BYTES];
+extern const uint8_t lc_bubble_cat[LC_BUBBLE_BYTES];
+extern const uint8_t lc_bubble_dog[LC_BUBBLE_BYTES];
 
 #endif
 """
@@ -150,6 +170,10 @@ def _source(arrays: Iterable[tuple[str, bytes]]) -> str:
             '               "mystery card size mismatch");\n',
             "_Static_assert(sizeof(lc_card_home) == LC_CARD_BYTES,\n",
             '               "home card size mismatch");\n',
+            "_Static_assert(sizeof(lc_bubble_cat) == LC_BUBBLE_BYTES,\n",
+            '               "cat bubble size mismatch");\n',
+            "_Static_assert(sizeof(lc_bubble_dog) == LC_BUBBLE_BYTES,\n",
+            '               "dog bubble size mismatch");\n',
         ]
     )
     return "".join(parts)
@@ -160,15 +184,17 @@ def generate_files(source_dir: Path, output_c: Path, output_h: Path) -> dict[str
     arrays = [
         (
             "lc_bg_portrait",
-            _rgb565_le(_background(paths["sitting.png"], BACKGROUND_PORTRAIT)),
+            _rgb565_le(_background(paths["newnew-sitting.png"], BACKGROUND_PORTRAIT)),
         ),
         (
             "lc_bg_landscape",
-            _rgb565_le(_background(paths["sitting.png"], BACKGROUND_LANDSCAPE)),
+            _rgb565_le(_background(paths["newnew-sitting.png"], BACKGROUND_LANDSCAPE)),
         ),
-        ("lc_card_takeout", _rgb565_le(_card(paths["takeout_bag_ui.png"]))),
-        ("lc_card_mystery", _rgb565_le(_card(paths["mystery_box_ui.png"]))),
-        ("lc_card_home", _rgb565_le(_card(paths["homedinner.png"]))),
+        ("lc_card_takeout", _rgb565_le(_card(paths["角色与元素UI/takeout_bag_ui.png"]))),
+        ("lc_card_mystery", _rgb565_le(_card(paths["角色与元素UI/mystery_box_ui.png"]))),
+        ("lc_card_home", _rgb565_le(_card(paths["角色与元素UI/homedinner.png"]))),
+        ("lc_bubble_cat", _bubble_argb8888(paths["角色与元素UI/chat-Bubble2.png"])),
+        ("lc_bubble_dog", _bubble_argb8888(paths["角色与元素UI/chat-Bubble1.png"])),
     ]
 
     output_c.parent.mkdir(parents=True, exist_ok=True)
@@ -179,6 +205,7 @@ def generate_files(source_dir: Path, output_c: Path, output_h: Path) -> dict[str
         "portrait_background_bytes": len(arrays[0][1]),
         "landscape_background_bytes": len(arrays[1][1]),
         "card_bytes": len(arrays[2][1]),
+        "bubble_bytes": len(arrays[5][1]),
     }
 
 

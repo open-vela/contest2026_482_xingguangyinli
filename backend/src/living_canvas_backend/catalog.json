@@ -82,5 +82,19 @@
     "tags": ["探索", "盲盒"],
     "novelty_score": 0.92,
     "search_query": "附近特色美食"
+  },
+  {
+    "candidate_id": "home-tomato-egg-rice",
+    "name": "番茄鸡蛋饭",
+    "cuisine": "中式",
+    "temperature": "热",
+    "price_cny": 18,
+    "delivery_minutes": 15,
+    "channels": ["home"],
+    "ingredients": ["米饭", "番茄", "鸡蛋"],
+    "allergens": ["蛋类"],
+    "tags": ["家常", "简单", "一人食"],
+    "novelty_score": 0.1,
+    "search_query": "番茄鸡蛋饭做法"
   }
 ]

@@ -98,16 +98,19 @@ int main(void)
          LC_AGENT_OK);
   assert(lc_agent_poll(&timeout_session, 10999u) == LC_AGENT_WAITING);
   assert(lc_agent_poll(&timeout_session, 11000u) == LC_AGENT_TIMEOUT);
-  assert(timeout_session.status == LC_AGENT_LOCKED);
+  assert(timeout_session.status == LC_AGENT_ERROR);
   assert(lc_agent_accept_reply(&timeout_session, request.id, 0, "late") ==
          LC_AGENT_STALE);
-
-  assert(lc_agent_transport_reset(&timeout_session) == LC_AGENT_LOCKED);
+  assert(lc_agent_begin(&timeout_session, "retry after timeout", 12000u,
+                        1000u, &request) == LC_AGENT_OK);
+  assert(lc_agent_accept_reply(&timeout_session, request.id, 0,
+                               "recovered") == LC_AGENT_OK);
+  assert(strcmp(timeout_session.reply, "recovered") == 0);
   assert(lc_agent_init(&clock_session));
   assert(lc_agent_begin(&clock_session, "clock", 12000u, 1000u, &request) ==
          LC_AGENT_OK);
   assert(lc_agent_poll(&clock_session, 11999u) == LC_AGENT_CLOCK_ERROR);
-  assert(clock_session.status == LC_AGENT_LOCKED);
+  assert(clock_session.status == LC_AGENT_ERROR);
 
   puts("PASS: lc_agent");
   return 0;

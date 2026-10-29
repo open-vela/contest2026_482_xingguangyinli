@@ -18,8 +18,8 @@ This baseline is read-only. It does not flash, reboot, erase, configure, mount, 
 
 The current physical inventory intentionally has the Gemini-S1 connected alone. The recorded mmWave and camera-controller serials are absent, which is the expected safe state during board baseline work:
 
-- Seeed mmWave expected serial: `10:BD:A3:9F:6A:10`
-- Seeed camera controller expected serial: `A4:CB:8F:D1:4F:5C`
+- Seeed mmWave expected serial: configured through `LIVING_CANVAS_MMWAVE_USB_SERIAL`
+- Seeed camera controller expected serial: configured through `LIVING_CANVAS_CAMERA_USB_SERIAL`
 
 ## Shell capability status
 

@@ -21,5 +21,6 @@ lc_agent_status_t lc_agent_bridge_poll(lc_agent_bridge_t *bridge,
 lc_agent_status_t lc_agent_bridge_copy_reply(lc_agent_bridge_t *bridge,
                                              char *reply,
                                              size_t reply_capacity);
+bool lc_agent_bridge_can_retry(lc_agent_bridge_t *bridge);
 
 #endif

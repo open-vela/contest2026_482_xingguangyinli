@@ -178,14 +178,14 @@ lc_agent_status_t lc_agent_poll(lc_agent_session_t *session,
 
   if (now_ms < session->started_ms)
     {
-      session->status = LC_AGENT_LOCKED;
+      session->status = LC_AGENT_ERROR;
       session->active_id = 0u;
       return LC_AGENT_CLOCK_ERROR;
     }
 
   if (now_ms - session->started_ms >= session->timeout_ms)
     {
-      session->status = LC_AGENT_LOCKED;
+      session->status = LC_AGENT_ERROR;
       session->active_id = 0u;
       return LC_AGENT_TIMEOUT;
     }

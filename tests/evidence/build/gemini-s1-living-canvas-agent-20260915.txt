@@ -21,7 +21,7 @@ Host verification before product build
 
 Product build command
 QEMU_LD_PREFIX=/usr/x86_64-linux-gnu \
-QEMU_SET_ENV=LD_LIBRARY_PATH=/home/abby/.local/share/openvela-x86_64-jammy/root/lib/x86_64-linux-gnu \
+QEMU_SET_ENV=LD_LIBRARY_PATH=<HOME>/.local/share/openvela-x86_64-jammy/root/lib/x86_64-linux-gnu \
 ./build.sh vendor/allwinnertech/boards/r528/r528s3-gemini-s1/configs/nsh_minidisplay/ -e -Wno-error -j2
 
 Observed result

@@ -41,10 +41,18 @@
       .then(data => {
         const choice = data.recommendation?.candidate;
         if (!choice) throw new Error();
-        result.innerHTML = `<h2>${choice.name}</h2><p>预计 ¥${choice.price_cny} · ${choice.delivery_minutes} 分钟</p>`;
+        const title = document.createElement('h2');
+        title.textContent = choice.name;
+        const details = document.createElement('p');
+        details.textContent = `预计 ¥${choice.price_cny} · ${choice.delivery_minutes} 分钟。预计价格与送达时间，以平台为准。`;
+        result.replaceChildren(title, details);
         if (data.metadata?.external_url) {
-          const link = document.createElement('a'); link.className='action'; link.textContent='打开外卖平台继续确认';
-          link.href=data.metadata.external_url; link.rel='noopener noreferrer'; result.appendChild(link);
+          const target = new URL(data.metadata.external_url, location.origin);
+          const allowedHosts = new Set(['h5.ele.me']);
+          if (target.protocol === 'https:' && allowedHosts.has(target.hostname)) {
+            const link = document.createElement('a'); link.className='action'; link.textContent='打开饿了么继续确认';
+            link.href=target.href; link.rel='noopener noreferrer'; result.appendChild(link);
+          }
         }
       }).catch(() => result.textContent='这次选择暂时无法读取，请回到画框重试。');
   </script>

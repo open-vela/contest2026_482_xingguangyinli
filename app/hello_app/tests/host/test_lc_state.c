@@ -20,6 +20,7 @@ static void test_happy_path(void)
   actions = lc_state_handle(&machine, LC_EVENT_PRESENCE, 1000u);
   assert(machine.state == LC_STATE_GREETING);
   expect_action(actions, LC_ACTION_SHOW_STATE);
+  expect_action(actions, LC_ACTION_PLAY_GREETING);
 
   actions = lc_state_handle(&machine, LC_EVENT_USER_START, 1500u);
   assert(machine.state == LC_STATE_LISTENING);
@@ -31,10 +32,11 @@ static void test_happy_path(void)
 
   actions = lc_state_handle(&machine, LC_EVENT_AI_RESULT, 2500u);
   assert(machine.state == LC_STATE_RECOMMENDATION);
-  expect_action(actions, LC_ACTION_SHOW_QR);
+  assert((actions & LC_ACTION_SHOW_QR) == 0u);
 
   actions = lc_state_handle(&machine, LC_EVENT_CONFIRM, 3000u);
   assert(machine.state == LC_STATE_CONFIRMED);
+  expect_action(actions, LC_ACTION_SHOW_QR);
   expect_action(actions, LC_ACTION_SET_LIGHT);
   expect_action(actions, LC_ACTION_SAVE_CONFIRMED_MEMORY);
 }
@@ -90,6 +92,22 @@ static void test_presence_cooldown_suppresses_repeat_greeting(void)
   assert(machine.state == LC_STATE_GREETING);
 }
 
+static void test_greeting_completion_returns_to_idle(void)
+{
+  lc_state_machine_t machine;
+
+  lc_state_init(&machine, 30000u);
+  lc_state_handle(&machine, LC_EVENT_PRESENCE, 1000u);
+  assert(machine.state == LC_STATE_GREETING);
+  expect_action(lc_state_handle(&machine, LC_EVENT_GREETING_FINISHED, 1800u),
+                LC_ACTION_SHOW_STATE);
+  assert(machine.state == LC_STATE_IDLE);
+
+  assert(lc_state_handle(&machine, LC_EVENT_GREETING_FINISHED, 1900u) ==
+         LC_ACTION_NONE);
+  assert(machine.state == LC_STATE_IDLE);
+}
+
 static void test_presence_cooldown_survives_clock_rollback(void)
 {
   lc_state_machine_t machine;
@@ -123,6 +141,7 @@ int main(void)
   test_confirmed_write_is_not_cancelled();
   test_network_error_and_recovery();
   test_presence_cooldown_suppresses_repeat_greeting();
+  test_greeting_completion_returns_to_idle();
   test_presence_cooldown_survives_clock_rollback();
   test_unrelated_event_does_nothing();
   puts("PASS: lc_state");

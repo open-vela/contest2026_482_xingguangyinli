@@ -30,7 +30,25 @@ grep -q 'DEPENDS' "$app_dir/CMakeLists.txt"
 grep -q 'lvgl' "$app_dir/CMakeLists.txt"
 grep -q 'lv_nuttx_init' "$app_dir/src/lc_display.c"
 grep -q '"/dev/lcd0"' "$app_dir/src/lc_display.c"
-grep -q 'SAFE OFFLINE PREVIEW' "$app_dir/src/lc_display.c"
+grep -q 'int lc_display_run_preview(void)' "$app_dir/src/lc_display.c"
+
+cmake_sources="$(grep -Eo 'src/[A-Za-z0-9_./-]+\.c' \
+  "$app_dir/CMakeLists.txt" | sort -u)"
+make_sources="$(grep -Eo 'src/[A-Za-z0-9_./-]+\.c' \
+  "$app_dir/Makefile" | sort -u)"
+if [[ "$cmake_sources" != "$make_sources" ]]; then
+  echo 'FAIL: CMakeLists.txt and Makefile source manifests differ' >&2
+  diff -u <(printf '%s\n' "$cmake_sources") \
+    <(printf '%s\n' "$make_sources") >&2 || true
+  exit 1
+fi
+while IFS= read -r source; do
+  [[ -n "$source" ]] || continue
+  test -f "$app_dir/$source" || {
+    echo "FAIL: build manifest references missing source: $source" >&2
+    exit 1
+  }
+done <<<"$cmake_sources"
 
 
 if grep -Eq 'CONTEST2026_000|team 000' \

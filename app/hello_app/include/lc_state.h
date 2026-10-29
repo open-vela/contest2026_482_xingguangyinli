@@ -23,7 +23,8 @@ typedef enum
   LC_EVENT_AI_RESULT,
   LC_EVENT_CONFIRM,
   LC_EVENT_CANCEL,
-  LC_EVENT_NETWORK_ERROR
+  LC_EVENT_NETWORK_ERROR,
+  LC_EVENT_GREETING_FINISHED
 } lc_event_t;
 
 typedef uint32_t lc_actions_t;
@@ -36,7 +37,8 @@ typedef enum
   LC_ACTION_REQUEST_DINNER = 1u << 2,
   LC_ACTION_SET_LIGHT = 1u << 3,
   LC_ACTION_SHOW_QR = 1u << 4,
-  LC_ACTION_SAVE_CONFIRMED_MEMORY = 1u << 5
+  LC_ACTION_SAVE_CONFIRMED_MEMORY = 1u << 5,
+  LC_ACTION_PLAY_GREETING = 1u << 6
 } lc_action_t;
 
 typedef struct

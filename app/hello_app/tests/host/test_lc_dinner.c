@@ -50,6 +50,7 @@ static void test_filters_allergens_and_budget(void)
   assert(lc_dinner_select(catalog, 3u, &constraints, &result) == LC_DINNER_OK);
   assert(result.candidate_count == 1u);
   assert(strcmp(result.candidates[0].name, "rice-bowl") == 0);
+  assert((result.actions & LC_ACTION_SHOW_QR) == 0u);
 }
 
 static void test_transient_no_spicy_filter(void)
@@ -96,10 +97,13 @@ static void test_result_rejects_unknown_or_privileged_actions(void)
   lc_dinner_result_t result = {
     .candidate_count = 1u,
     .next_state = LC_STATE_RECOMMENDATION,
-    .actions = LC_ACTION_SHOW_STATE | LC_ACTION_SHOW_QR,
+    .actions = LC_ACTION_SHOW_STATE,
   };
 
   assert(lc_dinner_validate_result(&result));
+  result.actions |= LC_ACTION_SHOW_QR;
+  assert(!lc_dinner_validate_result(&result));
+  result.actions = LC_ACTION_SHOW_STATE;
   result.actions |= LC_ACTION_SET_LIGHT;
   assert(!lc_dinner_validate_result(&result));
   result.actions = (lc_actions_t)(1u << 31);

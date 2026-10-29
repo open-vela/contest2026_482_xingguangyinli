@@ -2,15 +2,20 @@
 set -euo pipefail
 
 require_all=0
+list_candidates=0
 inventory_json=""
 
 usage() {
   cat <<'EOF'
-Usage: verify_usb_inventory.sh [--require-all] [--inventory-json FILE]
+Usage: verify_usb_inventory.sh [--require-all] [--list-candidates] [--inventory-json FILE]
 
 Read-only USB identity check for the Living Canvas hardware set.
 By default, Gemini-S1 is required and disconnected peripherals are reported.
 Use --require-all only when validating the complete connected hardware set.
+Peripheral identities come from LIVING_CANVAS_MMWAVE_USB_SERIAL and
+LIVING_CANVAS_CAMERA_USB_SERIAL; their values are never stored in this repo.
+Use --list-candidates to report unmatched Espressif USB devices without writing
+to them. This is intended for first-pass inventory of companion ESP32 boards.
 EOF
 }
 
@@ -18,6 +23,10 @@ while (($#)); do
   case "$1" in
     --require-all)
       require_all=1
+      shift
+      ;;
+    --list-candidates)
+      list_candidates=1
       shift
       ;;
     --inventory-json)
@@ -48,13 +57,15 @@ else
   system_profiler -json SPUSBDataType >"$input_path"
 fi
 
-python3 - "$input_path" "$require_all" <<'PY'
+python3 - "$input_path" "$require_all" "$list_candidates" <<'PY'
 import json
+import os
 import re
 import sys
 
-path, require_all_text = sys.argv[1:]
+path, require_all_text, list_candidates_text = sys.argv[1:]
 require_all = require_all_text == "1"
+list_candidates = list_candidates_text == "1"
 
 with open(path, encoding="utf-8") as handle:
     root = json.load(handle)
@@ -100,31 +111,61 @@ else:
         print("Gemini-S1: ERROR serial 1234 has conflicting USB identity")
         failed = True
 
-peripherals = (
-    ("mmWave", "10:BD:A3:9F:6A:10"),
-    ("Camera", "A4:CB:8F:D1:4F:5C"),
+peripherals = tuple(
+    (label, os.environ.get(name, ""))
+    for label, name in (
+        ("mmWave", "LIVING_CANVAS_MMWAVE_USB_SERIAL"),
+        ("Camera", "LIVING_CANVAS_CAMERA_USB_SERIAL"),
+    )
 )
+known_serials = {"1234", *(serial for _, serial in peripherals)}
 
 for label, serial in peripherals:
+    if not re.fullmatch(r"[A-Za-z0-9:._-]{1,64}", serial):
+        print(f"{label}: UNCONFIGURED private USB identity required")
+        failed = failed or require_all
+        continue
     matches = serial_matches(serial)
     if not matches:
-        print(f"{label}: MISSING expected_serial={serial}")
+        print(f"{label}: MISSING configured USB identity")
         failed = failed or require_all
         continue
     if len(matches) != 1:
-        print(f"{label}: ERROR expected at most 1 device with serial {serial}, found {len(matches)}")
+        print(f"{label}: ERROR configured identity matched {len(matches)} devices")
         failed = True
         continue
     item = matches[0]
     vendor = normalized_hex(item.get("vendor_id"))
     manufacturer = str(item.get("manufacturer", ""))
     if vendor != "0x303a" and "espressif" not in manufacturer.lower():
-        print(f"{label}: ERROR serial {serial} has conflicting USB identity")
+        print(f"{label}: ERROR configured identity has conflicting USB metadata")
         failed = True
         continue
     product = str(item.get("_name", "unknown"))
     product_id = normalized_hex(item.get("product_id")) or "unknown"
-    print(f"{label}: PRESENT serial={serial} vid={vendor or 'unknown'} pid={product_id} product={product}")
+    print(f"{label}: PRESENT vid={vendor or 'unknown'} pid={product_id} product={product}")
+
+if list_candidates:
+    candidates = []
+    for item in records:
+        serial = str(item.get("serial_num", ""))
+        vendor = normalized_hex(item.get("vendor_id"))
+        manufacturer = str(item.get("manufacturer", ""))
+        if serial in known_serials:
+            continue
+        if vendor != "0x303a" and "espressif" not in manufacturer.lower():
+            continue
+        product_id = normalized_hex(item.get("product_id"))
+        product = str(item.get("_name", "unknown"))
+        candidates.append((serial or "unknown", vendor, product_id, product))
+
+    for serial, vendor, product_id, product in sorted(candidates):
+        vid_text = vendor.removeprefix("0x") or "unknown"
+        pid_text = product_id.removeprefix("0x") or "unknown"
+        print(
+            f"Accessory candidate: serial={serial} "
+            f"vid:pid={vid_text}:{pid_text} product={product}"
+        )
 
 sys.exit(1 if failed else 0)
 PY

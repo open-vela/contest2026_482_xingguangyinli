@@ -28,6 +28,28 @@ typedef struct
 
 typedef struct
 {
+  unsigned int background_width;
+  unsigned int background_height;
+  unsigned int background_scale;
+  unsigned int card_size;
+  unsigned int card_spacing;
+  unsigned int card_bottom;
+  unsigned int status_top;
+  bool rotate_touch;
+} lc_ui_choice_layout_t;
+
+typedef struct
+{
+  lc_ui_rect_t artwork;
+  lc_ui_rect_t objects[3];
+  lc_ui_rect_t cat_bubble;
+  lc_ui_rect_t dog_bubble;
+  lc_ui_rect_t result;
+  unsigned int scale;
+} lc_ui_room_layout_t;
+
+typedef struct
+{
   bool cat_eyes_open;
   bool qr_visible;
   bool clock_visible;
@@ -51,5 +73,11 @@ lc_ui_status_t lc_ui_build_model(lc_state_t state,
 bool lc_ui_compute_layout(unsigned int width,
                           unsigned int height,
                           lc_ui_layout_t *layout);
+bool lc_ui_compute_choice_layout(unsigned int width,
+                                 unsigned int height,
+                                 lc_ui_choice_layout_t *layout);
+bool lc_ui_compute_room_layout(unsigned int width,
+                               unsigned int height,
+                               lc_ui_room_layout_t *layout);
 
 #endif

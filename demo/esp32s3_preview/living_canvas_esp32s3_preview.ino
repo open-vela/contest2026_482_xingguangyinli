@@ -1,18 +1,46 @@
 #include <Adafruit_XCA9554.h>
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
-#include <FS.h>
-#include <SPIFFS.h>
 #include <TouchDrv.hpp>
+#include <WiFi.h>
+#include <WiFiUdp.h>
 #include <Wire.h>
-#include <esp_heap_caps.h>
+#include <esp_system.h>
+#include <mbedtls/md.h>
+
+#include <cstring>
 
 #include "HWCDC.h"
 #include "board_pins.h"
-#include "generated/living_canvas_asset_manifest.h"
-#include "src/living_canvas_assets.h"
-#include "src/living_canvas_state.h"
-#include "src/qrcode/qrcodegen.h"
+#include "src/living_canvas_cat_ui.h"
+#include "src/living_canvas_input_policy.h"
+#include "src/living_canvas_local_link.h"
+#include "src/living_canvas_render_policy.h"
+
+#if __has_include("generated/living_canvas_private_config.h")
+#include "generated/living_canvas_private_config.h"
+#define LC_HAS_PRIVATE_CONFIG 1
+#else
+#define LC_HAS_PRIVATE_CONFIG 0
+#define LC_CAT_DEVICE_ID ""
+#define LC_WIFI_SSID ""
+#define LC_WIFI_PASSWORD ""
+#define LC_LOCAL_S1_HOST ""
+#define LC_LOCAL_S1_PORT 0
+#define LC_LOCAL_PAIRING_KEY_HEX ""
+#endif
+
+// Keep older ignored preview headers buildable, but never treat them as a
+// configured local link unless every new field is explicitly present.
+#ifndef LC_LOCAL_S1_HOST
+#define LC_LOCAL_S1_HOST ""
+#endif
+#ifndef LC_LOCAL_S1_PORT
+#define LC_LOCAL_S1_PORT 0
+#endif
+#ifndef LC_LOCAL_PAIRING_KEY_HEX
+#define LC_LOCAL_PAIRING_KEY_HEX ""
+#endif
 
 HWCDC USBSerial;
 
@@ -22,311 +50,279 @@ Arduino_CO5300 *display = new Arduino_CO5300(
     displayBus, GFX_NOT_DEFINED, 0, LCD_WIDTH, LCD_HEIGHT, 16, 0, 0, 0);
 Adafruit_XCA9554 ioExpander;
 TouchDrvCST816 touch;
-LivingCanvasState appState;
+WiFiUDP localUdp;
+LivingCanvasLocalLink *localLink = nullptr;
+LivingCanvasCatUi catUi(LC_CAT_DEVICE_ID);
 
-uint16_t *frameBuffer = nullptr;
 bool touchReady = false;
 bool touchWasDown = false;
 bool buttonWasDown = false;
-std::size_t lastHomeFrame = LIVING_CANVAS_HOME_FRAME_COUNT;
-uint32_t homeStartedAt = 0;
+bool localUdpReady = false;
+uint32_t lastCatRenderSignature = 0xFFFFFFFFu;
 
 constexpr uint16_t COLOR_INK = 0x2945;
 constexpr uint16_t COLOR_CREAM = 0xFF3A;
 constexpr uint16_t COLOR_ORANGE = 0xFBA6;
 constexpr uint16_t COLOR_GREEN = 0x4D8A;
-constexpr uint16_t COLOR_BLUE = 0x3339;
 constexpr uint16_t COLOR_WHITE = 0xFFFF;
-constexpr uint16_t COLOR_BLACK = 0x0000;
 
-static void fatalScreen(const char *message) {
-  display->fillScreen(0x4000);
-  display->setTextColor(0xFFFF);
-  display->setTextSize(2);
-  display->setCursor(22, 190);
-  display->println("Living Canvas");
-  display->setCursor(22, 225);
-  display->println(message);
-  while (true) delay(1000);
+static bool checkinConfigured();
+
+static void drawCatFace(
+    uint16_t accent, LivingCanvasCatExpression expression) {
+  display->fillTriangle(104, 132, 136, 86, 160, 142, accent);
+  display->fillTriangle(208, 142, 232, 86, 264, 132, accent);
+  display->fillRoundRect(104, 118, 160, 126, 40, accent);
+
+  if (expression == LivingCanvasCatExpression::Blink) {
+    display->drawLine(142, 178, 166, 178, COLOR_INK);
+    display->drawLine(202, 178, 226, 178, COLOR_INK);
+  } else if (expression == LivingCanvasCatExpression::Happy) {
+    display->drawLine(142, 184, 154, 174, COLOR_INK);
+    display->drawLine(154, 174, 166, 184, COLOR_INK);
+    display->drawLine(202, 184, 214, 174, COLOR_INK);
+    display->drawLine(214, 174, 226, 184, COLOR_INK);
+  } else {
+    const int16_t pupilOffset =
+        expression == LivingCanvasCatExpression::Working ? 3 : 0;
+    display->fillCircle(154 + pupilOffset, 178, 10, COLOR_INK);
+    display->fillCircle(214 + pupilOffset, 178, 10, COLOR_INK);
+    display->fillCircle(151 + pupilOffset, 174, 3, COLOR_WHITE);
+    display->fillCircle(211 + pupilOffset, 174, 3, COLOR_WHITE);
+    if (expression == LivingCanvasCatExpression::Concerned) {
+      display->drawLine(140, 156, 166, 162, COLOR_INK);
+      display->drawLine(202, 162, 228, 156, COLOR_INK);
+    }
+  }
+
+  display->fillTriangle(176, 194, 192, 194, 184, 207, COLOR_ORANGE);
+  if (expression == LivingCanvasCatExpression::Concerned) {
+    display->drawLine(184, 207, 174, 218, COLOR_INK);
+    display->drawLine(174, 218, 194, 218, COLOR_INK);
+    display->drawLine(194, 218, 184, 207, COLOR_INK);
+  } else {
+    display->drawLine(184, 207, 164, 218, COLOR_INK);
+    display->drawLine(184, 207, 204, 218, COLOR_INK);
+  }
 }
 
-static bool drawFrameFile(const char *path) {
-  File file = SPIFFS.open(path, FILE_READ);
-  if (!file || file.size() != LIVING_CANVAS_FRAME_BYTES) {
-    USBSerial.printf("[ASSET] invalid %s size=%lu\n", path,
-                     file ? static_cast<unsigned long>(file.size()) : 0UL);
+static uint32_t catRenderSignature(
+    const LivingCanvasCatRenderPlan &plan, LivingCanvasCatUiState state,
+    bool configured) {
+  return static_cast<uint32_t>(state) |
+         (static_cast<uint32_t>(plan.expression) << 4) |
+         (static_cast<uint32_t>(plan.pulseStep) << 8) |
+         (static_cast<uint32_t>(plan.showAction) << 12) |
+         (static_cast<uint32_t>(plan.networkReady) << 13) |
+         (static_cast<uint32_t>(configured) << 14);
+}
+
+static void drawCatCompanionScreen(uint32_t nowMs, bool force) {
+  const bool configured = checkinConfigured();
+  const bool networkReady =
+      WiFi.status() == WL_CONNECTED && localUdpReady;
+  const LivingCanvasCatUiState state = catUi.state();
+  const LivingCanvasCatRenderPlan plan = livingCanvasCatRenderPlan(
+      state, configured, networkReady, nowMs);
+  const uint32_t signature = catRenderSignature(plan, state, configured);
+  if (!force && signature == lastCatRenderSignature) return;
+  lastCatRenderSignature = signature;
+
+  const uint16_t accent = catUi.accent565();
+  display->fillScreen(COLOR_CREAM);
+  display->fillRect(0, 0, LCD_WIDTH, 72, accent);
+  display->setTextColor(COLOR_WHITE);
+  display->setTextSize(2);
+  display->setCursor(28, 25);
+  display->print(catUi.label());
+  display->setTextSize(1);
+  display->setCursor(220, 30);
+  display->print("FRAME COMPANION");
+  if (plan.networkReady) {
+    display->fillCircle(338, 58, 6, COLOR_GREEN);
+  } else {
+    display->drawCircle(338, 58, 6, COLOR_WHITE);
+  }
+
+  for (uint8_t step = 0; step <= plan.pulseStep; ++step) {
+    display->drawCircle(184, 176, 112 + step * 8, accent);
+  }
+  drawCatFace(accent, plan.expression);
+
+  display->fillRoundRect(20, 274, 328, 102, 20, COLOR_WHITE);
+  display->drawRoundRect(20, 274, 328, 102, 20, accent);
+  display->setTextColor(COLOR_INK);
+  display->setTextSize(2);
+  display->setCursor(44, 304);
+  display->print(plan.headline);
+  display->setTextSize(1);
+  display->setCursor(52, 348);
+  display->print(plan.detail);
+
+  if (plan.showAction) {
+    display->fillRoundRect(36, 392, 296, 42, 14, accent);
+    display->setTextColor(COLOR_WHITE);
+    display->setTextSize(2);
+    display->setCursor(98, 405);
+    display->print("TAP ANYWHERE");
+  } else {
+    display->setTextColor(accent);
+    display->setTextSize(1);
+    display->setCursor(94, 414);
+    display->print("LIVING CANVAS LOCAL LINK");
+  }
+
+  USBSerial.printf("[CAT_UI] state=%u network=%u sequence=%lu\n",
+                   static_cast<unsigned>(state),
+                   static_cast<unsigned>(networkReady),
+                   static_cast<unsigned long>(catUi.pendingSequence()));
+}
+
+static bool checkinConfigured() {
+  return LC_HAS_PRIVATE_CONFIG && LC_CAT_DEVICE_ID[0] != '\0' &&
+         LC_WIFI_SSID[0] != '\0' && LC_WIFI_PASSWORD[0] != '\0' &&
+         LC_LOCAL_S1_HOST[0] != '\0' && LC_LOCAL_S1_PORT >= 1024 &&
+         std::strlen(LC_LOCAL_PAIRING_KEY_HEX) ==
+             LIVING_CANVAS_LOCAL_KEY_BYTES * 2;
+}
+
+static int lowerHexValue(char value) {
+  if (value >= '0' && value <= '9') return value - '0';
+  if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+  return -1;
+}
+
+static bool decodePairingKey(
+    const char *hex,
+    uint8_t output[LIVING_CANVAS_LOCAL_KEY_BYTES]) {
+  if (hex == nullptr || output == nullptr ||
+      std::strlen(hex) != LIVING_CANVAS_LOCAL_KEY_BYTES * 2) {
     return false;
   }
-  std::size_t read = file.readBytes(reinterpret_cast<char *>(frameBuffer),
-                                    LIVING_CANVAS_FRAME_BYTES);
-  file.close();
-  if (read != LIVING_CANVAS_FRAME_BYTES) return false;
-  display->draw16bitRGBBitmap(0, 0, frameBuffer, LCD_WIDTH, LCD_HEIGHT);
+  for (std::size_t index = 0; index < LIVING_CANVAS_LOCAL_KEY_BYTES;
+       ++index) {
+    const int high = lowerHexValue(hex[index * 2]);
+    const int low = lowerHexValue(hex[index * 2 + 1]);
+    if (high < 0 || low < 0) return false;
+    output[index] = static_cast<uint8_t>((high << 4) | low);
+  }
   return true;
 }
 
-static void drawHome(bool force) {
-  std::size_t frame = appState.homeFrame(
-      millis() - homeStartedAt, LIVING_CANVAS_HOME_FRAME_COUNT,
-      LIVING_CANVAS_HOME_FRAME_INTERVAL_MS);
-  if (!force && frame == lastHomeFrame) return;
-  char path[28];
-  livingCanvasHomePath(frame, path, sizeof(path));
-  if (drawFrameFile(path)) {
-    lastHomeFrame = frame;
-    USBSerial.printf("[HOME] frame=%u\n", static_cast<unsigned>(frame));
+static bool localHmac(
+    void *, const uint8_t key[LIVING_CANVAS_LOCAL_KEY_BYTES],
+    const uint8_t *message, std::size_t messageLength,
+    uint8_t output[LIVING_CANVAS_LOCAL_TAG_BYTES]) {
+  const mbedtls_md_info_t *sha256 =
+      mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+  return sha256 != nullptr &&
+         mbedtls_md_hmac(sha256, key, LIVING_CANVAS_LOCAL_KEY_BYTES,
+                         message, messageLength, output) == 0;
+}
+
+static void startCheckinNetwork() {
+  if (!checkinConfigured()) return;
+  uint8_t pairingKey[LIVING_CANVAS_LOCAL_KEY_BYTES];
+  if (!decodePairingKey(LC_LOCAL_PAIRING_KEY_HEX, pairingKey)) {
+    USBSerial.println("[CHECKIN] private config rejected");
+    return;
   }
-}
 
-static void drawBackButton() {
-  display->fillRoundRect(8, 8, 80, 38, 10, COLOR_INK);
-  display->setTextColor(COLOR_WHITE);
-  display->setTextSize(1);
-  display->setCursor(28, 22);
-  display->print("< BACK");
-}
-
-static void drawTitle(const char *title, const char *subtitle) {
-  display->fillScreen(COLOR_CREAM);
-  display->fillRect(0, 0, LCD_WIDTH, 86, COLOR_INK);
-  display->setTextColor(COLOR_WHITE);
-  display->setTextSize(2);
-  display->setCursor(104, 20);
-  display->println(title);
-  display->setTextSize(1);
-  display->setCursor(104, 54);
-  display->println(subtitle);
-  drawBackButton();
-}
-
-static void drawChoiceHighlight(LivingCanvasChoice choice) {
-  if (choice == LivingCanvasChoice::None) return;
-  int16_t x = 88;
-  int16_t y = 232;
-  int16_t w = 72;
-  int16_t h = 98;
-  if (choice == LivingCanvasChoice::Mystery) {
-    x = 154; y = 248; w = 72; h = 90;
-  } else if (choice == LivingCanvasChoice::HomeCooking) {
-    x = 218; y = 252; w = 78; h = 88;
+  char sessionId[LIVING_CANVAS_LOCAL_SESSION_MAX];
+  std::snprintf(sessionId, sizeof(sessionId), "boot_%08lx%08lx",
+                static_cast<unsigned long>(esp_random()),
+                static_cast<unsigned long>(esp_random()));
+  localLink = new LivingCanvasLocalLink(LC_CAT_DEVICE_ID, sessionId,
+                                        pairingKey, localHmac, nullptr);
+  std::memset(pairingKey, 0, sizeof(pairingKey));
+  if (localLink == nullptr || !localLink->ready()) {
+    localLink = nullptr;
+    USBSerial.println("[CHECKIN] local link unavailable");
+    return;
   }
-  for (int inset = 0; inset < 4; ++inset) {
-    display->drawRoundRect(x - inset, y - inset, w + inset * 2, h + inset * 2,
-                           10, COLOR_ORANGE);
-  }
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(LC_WIFI_SSID, LC_WIFI_PASSWORD);
+  USBSerial.println("[CHECKIN] authenticated local link started");
 }
 
-static void drawMenu() {
-  if (!drawFrameFile(LIVING_CANVAS_MENU_PATH)) fatalScreen("MENU ASSET ERROR");
-  drawBackButton();
-  drawChoiceHighlight(appState.selectedChoice());
-  display->fillRoundRect(36, 386, 296, 44, 12, COLOR_INK);
-  display->setTextColor(COLOR_WHITE);
-  display->setTextSize(1);
-  display->setCursor(58, 401);
-  display->print("TAP TO HIGHLIGHT - TAP AGAIN TO OPEN");
-}
-
-static void drawAgentCard(int16_t y, const char *label, const char *value) {
-  display->fillRoundRect(24, y, 320, 64, 12, COLOR_WHITE);
-  display->drawRoundRect(24, y, 320, 64, 12, COLOR_ORANGE);
-  display->setTextColor(COLOR_INK);
-  display->setTextSize(2);
-  display->setCursor(40, y + 12);
-  display->print(label);
-  display->setTextSize(1);
-  display->setCursor(40, y + 42);
-  display->print(value);
-}
-
-static void drawTakeoutListening() {
-  drawTitle("TAKEOUT", "VOICE INPUT DEMO");
-  display->setTextColor(COLOR_INK);
-  display->setTextSize(2);
-  display->setCursor(30, 135);
-  display->println("Listening...");
-  display->fillRoundRect(28, 190, 312, 128, 16, COLOR_WHITE);
-  display->setCursor(48, 220);
-  display->println("Light taste");
-  display->setCursor(48, 258);
-  display->println("No spicy");
-  display->setCursor(48, 296);
-  display->println("Under 35 RMB");
-}
-
-static void drawTakeoutAnalyzing() {
-  drawTitle("ANALYZING", "MULTI-AGENT DEMO");
-  drawAgentCard(110, "TASTE AGENT", "light / no spicy        OK");
-  drawAgentCard(190, "MEMORY AGENT", "liked rice bowls      OK");
-  drawAgentCard(270, "BUDGET AGENT", "under 35 RMB          OK");
-  drawAgentCard(350, "DECISION AGENT", "ranking candidates...");
-}
-
-static void drawQr(const char *text, int16_t top) {
-  static uint8_t temp[qrcodegen_BUFFER_LEN_FOR_VERSION(8)];
-  static uint8_t qr[qrcodegen_BUFFER_LEN_FOR_VERSION(8)];
-  if (!qrcodegen_encodeText(text, temp, qr, qrcodegen_Ecc_LOW, 1, 8,
-                            qrcodegen_Mask_AUTO, true)) return;
-  int size = qrcodegen_getSize(qr);
-  int scale = 4;
-  int quiet = 4;
-  int pixels = (size + quiet * 2) * scale;
-  int left = (LCD_WIDTH - pixels) / 2;
-  display->fillRect(left, top, pixels, pixels, COLOR_WHITE);
-  for (int y = 0; y < size; ++y) {
-    for (int x = 0; x < size; ++x) {
-      if (qrcodegen_getModule(qr, x, y)) {
-        display->fillRect(left + (x + quiet) * scale,
-                          top + (y + quiet) * scale, scale, scale, COLOR_BLACK);
+static void receiveLocalAcks(uint32_t nowMs) {
+  if (localLink == nullptr || !localUdpReady) return;
+  for (int packetSize = localUdp.parsePacket(); packetSize > 0;
+       packetSize = localUdp.parsePacket()) {
+    uint8_t packet[LIVING_CANVAS_LOCAL_PACKET_MAX];
+    if (packetSize >= static_cast<int>(sizeof(packet))) {
+      while (localUdp.available() > 0) {
+        uint8_t discarded[32];
+        localUdp.read(discarded, sizeof(discarded));
       }
+      continue;
+    }
+    const int received = localUdp.read(packet, packetSize);
+    if (received != packetSize ||
+        !localLink->acceptAck(packet, static_cast<std::size_t>(received),
+                              nowMs)) {
+      continue;
+    }
+    catUi.onMatchingAck(localLink->sequence(), nowMs);
+    drawCatCompanionScreen(nowMs, true);
+    USBSerial.println("[CHECKIN] signed local acknowledgement verified");
+  }
+}
+
+static void deliverPendingCheckin(uint32_t nowMs) {
+  if (localLink == nullptr) return;
+
+  if (WiFi.status() == WL_CONNECTED && !localUdpReady) {
+    localUdpReady = localUdp.begin(0) != 0;
+    if (localUdpReady) {
+      USBSerial.println("[CHECKIN] local datagram socket ready");
     }
   }
-}
+  receiveLocalAcks(nowMs);
 
-static void drawTakeoutResult() {
-  drawTitle("TAKEOUT READY", "SCAN THE QR CODE");
-  display->setTextColor(COLOR_INK);
-  display->setTextSize(2);
-  display->setCursor(42, 106);
-  display->println("Tomato beef rice");
-  display->setTextSize(1);
-  display->setCursor(96, 138);
-  display->println("32 RMB - 28 min");
-  drawQr("https://github.com/abbyxu123/xiaomi-Living-Canvas", 168);
-  display->setCursor(76, 388);
-  display->println("Returns home automatically");
-}
-
-static void drawMysteryBoxes() {
-  drawTitle("MYSTERY BOX", "PICK ONE OF FOUR TAKEOUTS");
-  const char *labels[] = {"A", "B", "C", "D"};
-  for (int i = 0; i < 4; ++i) {
-    int x = 38 + (i % 2) * 158;
-    int y = 120 + (i / 2) * 140;
-    display->fillRoundRect(x, y, 134, 110, 14, COLOR_ORANGE);
-    display->drawRoundRect(x, y, 134, 110, 14, COLOR_INK);
-    display->setTextColor(COLOR_INK);
-    display->setTextSize(4);
-    display->setCursor(x + 54, y + 38);
-    display->print(labels[i]);
+  const LivingCanvasLocalLinkState beforeUpdate = localLink->state();
+  localLink->update(nowMs);
+  if (beforeUpdate != LivingCanvasLocalLinkState::Retry &&
+      localLink->state() == LivingCanvasLocalLinkState::Retry) {
+    catUi.onDeliveryFailed(localLink->sequence(), nowMs);
+    drawCatCompanionScreen(nowMs, true);
+    USBSerial.println("[CHECKIN] local acknowledgement timeout");
   }
-}
 
-static void drawMysteryResult() {
-  drawTitle("BOX OPENED", "MEMORY-SAFE RANDOM PICK");
-  display->setTextColor(COLOR_INK);
-  display->setTextSize(5);
-  display->setCursor(142, 150);
-  display->print(static_cast<char>('A' + appState.selectedBox()));
-  display->setTextSize(2);
-  display->setCursor(58, 245);
-  display->println("Chicken rice bowl");
-  display->setCursor(76, 285);
-  display->println("No spicy - 29 RMB");
-}
-
-static void drawHomeCookingListening() {
-  drawTitle("COOK AT HOME", "FRIDGE VOICE INPUT DEMO");
-  display->setTextColor(COLOR_INK);
-  display->setTextSize(2);
-  display->setCursor(26, 150);
-  display->println("In the fridge:");
-  display->setTextSize(3);
-  display->setCursor(48, 218);
-  display->println("Tomato");
-  display->setCursor(48, 270);
-  display->println("Eggs");
-}
-
-static void drawHomeCookingResult() {
-  drawTitle("DINNER RECIPE", "PRESET DEMO RESULT");
-  display->setTextColor(COLOR_INK);
-  display->setTextSize(3);
-  display->setCursor(34, 135);
-  display->println("Tomato & Egg");
-  display->setTextSize(2);
-  display->setCursor(34, 205);
-  display->println("1. Scramble eggs");
-  display->setCursor(34, 250);
-  display->println("2. Cook tomato");
-  display->setCursor(34, 295);
-  display->println("3. Mix and serve");
-  display->setCursor(34, 355);
-  display->println("Ready in 12 min");
-}
-
-static void drawCurrentScreen() {
-  USBSerial.printf("[STATE] screen=%u choice=%u\n",
-                   static_cast<unsigned>(appState.screen()),
-                   static_cast<unsigned>(appState.selectedChoice()));
-  switch (appState.screen()) {
-    case LivingCanvasScreen::Home:
-      homeStartedAt = millis();
-      lastHomeFrame = LIVING_CANVAS_HOME_FRAME_COUNT;
-      drawHome(true);
-      break;
-    case LivingCanvasScreen::Menu:
-      drawMenu();
-      break;
-    case LivingCanvasScreen::TakeoutListening:
-      drawTakeoutListening();
-      break;
-    case LivingCanvasScreen::TakeoutAnalyzing:
-      drawTakeoutAnalyzing();
-      break;
-    case LivingCanvasScreen::TakeoutResult:
-      drawTakeoutResult();
-      break;
-    case LivingCanvasScreen::MysteryBoxes:
-      drawMysteryBoxes();
-      break;
-    case LivingCanvasScreen::MysteryResult:
-      drawMysteryResult();
-      break;
-    case LivingCanvasScreen::HomeCookingListening:
-      drawHomeCookingListening();
-      break;
-    case LivingCanvasScreen::HomeCookingResult:
-      drawHomeCookingResult();
-      break;
+  if (!localLink->shouldSend(nowMs)) return;
+  char request[LIVING_CANVAS_LOCAL_PACKET_MAX];
+  const bool formatted = localLink->formatRequest(request, sizeof(request));
+  if (formatted && WiFi.status() == WL_CONNECTED && localUdpReady &&
+      localUdp.beginPacket(LC_LOCAL_S1_HOST,
+                           static_cast<uint16_t>(LC_LOCAL_S1_PORT)) == 1) {
+    localUdp.write(reinterpret_cast<const uint8_t *>(request),
+                   std::strlen(request));
+    localUdp.endPacket();
   }
-}
-
-static LivingCanvasChoice choiceAt(int16_t x, int16_t y) {
-  if (y < 215 || y > 355) return LivingCanvasChoice::None;
-  if (x >= 70 && x < 150) return LivingCanvasChoice::Takeout;
-  if (x >= 150 && x < 228) return LivingCanvasChoice::Mystery;
-  if (x >= 228 && x <= 320) return LivingCanvasChoice::HomeCooking;
-  return LivingCanvasChoice::None;
+  localLink->markSent(nowMs);
 }
 
 static void handleTap(int16_t x, int16_t y, uint32_t nowMs) {
-  if (appState.screen() == LivingCanvasScreen::Home) {
-    appState.wake(nowMs);
-    drawCurrentScreen();
-    return;
-  }
-  if (x < 92 && y < 68) {
-    appState.back(nowMs);
-    drawCurrentScreen();
-    return;
-  }
-  if (appState.screen() == LivingCanvasScreen::Menu) {
-    LivingCanvasChoice choice = choiceAt(x, y);
-    if (choice != LivingCanvasChoice::None) {
-      appState.choose(choice, nowMs);
-      drawCurrentScreen();
+  if (localLink != nullptr) {
+    const LivingCanvasCatUiState uiState = catUi.state();
+    bool started = false;
+    if (uiState == LivingCanvasCatUiState::Idle) {
+      started = localLink->beginCheckin(nowMs);
+    } else if (uiState == LivingCanvasCatUiState::Retry) {
+      started = localLink->retry(nowMs);
     }
+    if (!started ||
+        !catUi.onExplicitTouch(localLink->sequence(), nowMs)) return;
+    drawCatCompanionScreen(nowMs, true);
     return;
   }
-  if (appState.screen() == LivingCanvasScreen::MysteryBoxes) {
-    if (x >= 38 && x <= 330 && y >= 120 && y <= 370) {
-      uint8_t column = x >= 196 ? 1 : 0;
-      uint8_t row = y >= 260 ? 1 : 0;
-      appState.chooseMysteryBox(row * 2 + column, nowMs);
-      drawCurrentScreen();
-    }
-  }
+  (void)x;
+  (void)y;
+  constexpr uint32_t kOfflinePreviewSequence = 1;
+  if (!catUi.onExplicitTouch(kOfflinePreviewSequence, nowMs)) return;
+  catUi.onDeliveryFailed(kOfflinePreviewSequence, nowMs);
+  drawCatCompanionScreen(nowMs, true);
+  USBSerial.println("[CHECKIN] offline UI preview; no event was delivered");
 }
 
 static bool initBoardPower() {
@@ -365,33 +361,23 @@ void setup() {
   if (touchReady) {
     touch.setMaxCoordinates(LCD_WIDTH, LCD_HEIGHT);
     USBSerial.println("[BOOT] CST820 touch ok");
+  } else if (checkinConfigured()) {
+    USBSerial.println(
+        "[BOOT] CST820 touch unavailable; touch check-in disabled");
   } else {
     USBSerial.println("[BOOT] CST820 touch unavailable; BOOT button enabled");
   }
 
-  frameBuffer = static_cast<uint16_t *>(
-      heap_caps_malloc(LIVING_CANVAS_FRAME_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (frameBuffer == nullptr) fatalScreen("PSRAM ERROR");
-  USBSerial.printf("[BOOT] PSRAM frame buffer=%p bytes=%u\n", frameBuffer,
-                   static_cast<unsigned>(LIVING_CANVAS_FRAME_BYTES));
-
-  if (!SPIFFS.begin(false)) fatalScreen("SPIFFS ERROR");
-  USBSerial.printf("[BOOT] SPIFFS ok used=%lu total=%lu\n",
-                   static_cast<unsigned long>(SPIFFS.usedBytes()),
-                   static_cast<unsigned long>(SPIFFS.totalBytes()));
-
-  homeStartedAt = millis();
-  drawHome(true);
-  USBSerial.println("[BOOT] home animation started");
+  startCheckinNetwork();
+  drawCatCompanionScreen(millis(), true);
+  USBSerial.println("[BOOT] independent cat companion ready");
 }
 
 void loop() {
   uint32_t nowMs = millis();
-  LivingCanvasScreen beforeUpdate = appState.screen();
-  appState.update(nowMs);
-  if (appState.screen() != beforeUpdate) drawCurrentScreen();
-
-  if (appState.screen() == LivingCanvasScreen::Home) drawHome(false);
+  deliverPendingCheckin(nowMs);
+  catUi.update(nowMs);
+  drawCatCompanionScreen(nowMs, false);
 
   bool touchDown = false;
   int16_t touchX = 0;
@@ -407,19 +393,15 @@ void loop() {
   }
   bool buttonDown = digitalRead(0) == LOW;
 
-  if (touchDown && !touchWasDown) {
+  const LivingCanvasInputAction inputAction = livingCanvasInputAction(
+      localLink != nullptr, touchDown && !touchWasDown,
+      buttonDown && !buttonWasDown);
+  if (inputAction == LivingCanvasInputAction::Touch) {
     USBSerial.printf("[TOUCH] x=%d y=%d\n", touchX, touchY);
     handleTap(touchX, touchY, nowMs);
   }
-  if (buttonDown && !buttonWasDown) {
-    if (appState.screen() == LivingCanvasScreen::Home) {
-      handleTap(180, 220, nowMs);
-    } else if (appState.screen() == LivingCanvasScreen::Menu) {
-      handleTap(110, 280, nowMs);
-    } else {
-      appState.back(nowMs);
-      drawCurrentScreen();
-    }
+  if (inputAction == LivingCanvasInputAction::PreviewButton) {
+    handleTap(180, 220, nowMs);
   }
   touchWasDown = touchDown;
   buttonWasDown = buttonDown;

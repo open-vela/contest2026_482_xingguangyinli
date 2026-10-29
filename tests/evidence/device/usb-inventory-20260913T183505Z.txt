@@ -1,3 +1,3 @@
 Gemini-S1: PRESENT serial=1234 vid:pid=18d1:4e11 manufacturer=NuttX product=Debug Bridge
-mmWave: MISSING expected_serial=10:BD:A3:9F:6A:10
-Camera: MISSING expected_serial=A4:CB:8F:D1:4F:5C
+mmWave: MISSING expected_serial=<configured-outside-repository>
+Camera: MISSING expected_serial=<configured-outside-repository>

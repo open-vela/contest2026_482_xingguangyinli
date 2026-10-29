@@ -26,40 +26,86 @@ meal that fits stated constraints.
    saved only after the user explicitly confirms both the choice and the wish
    to remember it.
 6. Never order food, initiate payment, run shell commands, change hardware,
-   write credentials, or create a long-term memory entry from Skill output.
-   Persistent memory and physical actions require explicit application confirmation.
+   write credentials, or create a long-term memory entry. Those actions remain
+   behind the Living Canvas application confirmation boundary.
 
-**Runtime output contract**
+## Response format
 
-Return one JSON object with reply, candidates, candidate_count, next_state, and actions.
-This output format maps to lc_dinner_result_t in `include/lc_dinner.h` and the
-rules in lc_dinner_validate_result in `src/lc_dinner.c`; that validator checks
-C structs and does not implement JSON parsing. The application must map names
-to C enums/action bits and validate before use.
+Return one JSON object matching this runtime output contract. It describes
+lc_dinner_result_t in `app/hello_app/include/lc_dinner.h` and the state/action
+constraints of lc_dinner_validate_result in `app/hello_app/src/lc_dinner.c`.
+The C implementation validates a struct; this Skill does not add a JSON parser.
+State and action strings map to the corresponding LC_STATE_ and LC_ACTION_
+constants; the application combines actions as a bitmask.
 
-- next_state allowlist: LISTENING, RECOMMENDATION, ERROR.
-- actions allowlist: SHOW_STATE, SHOW_QR; encode actions as an array of names.
-- candidate_count must equal the candidates array length (0–3).
-- With candidates, next_state must be RECOMMENDATION.
-- Without candidates, next_state must be LISTENING or ERROR; omit SHOW_QR.
-  Use LISTENING for missing facts and ERROR when no safe candidate remains.
-- Each candidate has name, reason, qr_target, price_cents, allergen_flags, spicy, and requires_cooking.
-  The first three are strings, the next two unsigned integers, and the last two
-  booleans. Copy factual values only from the application-supplied catalog;
-  if required facts are missing, ask for them without inventing a candidate.
-- String limits in UTF-8 bytes are reply: 159, name: 47, reason: 95, qr_target: 127
-  (leaving room for the C terminator); do not emit embedded NUL characters.
-- Keep reply short: a recommendation or explanation, then one question or
-  explicit confirmation request. Give each candidate one factual reason.
-- Only use a verified QR target supplied by the application; otherwise use an empty qr_target and omit SHOW_QR.
-- Reject SET_LIGHT, SAVE_CONFIRMED_MEMORY, and unknown actions.
-- Reject shell/device control, credentials, and payment requests in runtime output.
-  Report rejection in reply with no candidates, ERROR, and only SHOW_STATE.
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reply", "candidates", "candidate_count", "next_state", "actions"],
+  "properties": {
+    "reply": {"type": "string"},
+    "candidate_count": {"type": "integer", "minimum": 0, "maximum": 3},
+    "next_state": {"enum": ["LISTENING", "RECOMMENDATION", "ERROR"]},
+    "actions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"enum": ["SHOW_STATE", "SHOW_QR"]}
+    },
+    "candidates": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "reason", "qr_target", "price_cents", "allergen_flags", "spicy", "requires_cooking"],
+        "properties": {
+          "name": {"type": "string"},
+          "reason": {"type": "string"},
+          "qr_target": {"type": "string"},
+          "price_cents": {"type": "integer", "minimum": 0},
+          "allergen_flags": {"type": "integer", "minimum": 0},
+          "spicy": {"type": "boolean"},
+          "requires_cooking": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}
+```
+
+- candidate_count must equal the length of candidates.
+- With zero candidates, next_state must be LISTENING or ERROR; omit SHOW_QR.
+  Use LISTENING for missing facts (including budget), ERROR for no safe match.
+- With one to three candidates, next_state must be RECOMMENDATION.
+- Keep reply short, ending with one question or confirmation request. Give
+  each candidate one factual reason; copy catalog facts, never guess missing
+  prices or allergen flags. If required facts are unavailable, ask for them.
+- Use SHOW_QR only for an application-supplied, verified qr_target. Otherwise
+  use an empty qr_target and omit SHOW_QR. This is a Skill rule, not a URL
+  verification guarantee from the C validator.
+- UTF-8 byte limits before the C NUL terminator: reply 159, name 47, reason 95,
+  qr_target 127; no embedded NUL characters.
+- Reject SET_LIGHT, SAVE_CONFIRMED_MEMORY, shell or device control, credentials,
+  payment, and unknown actions at the Skill boundary. For such requests, return
+  ERROR with zero candidates and only SHOW_STATE, explaining the refusal in
+  reply; never put executable instructions in text fields or QR targets.
+- Persistent memory and physical actions require explicit application
+  confirmation and must never be emitted by this Skill. A user request does
+  not bypass this boundary.
 
 ## Example
 
-User: “Help me choose dinner.” (Budget is missing.)
+User: “今晚不想做饭，不吃辣。”
+
+Assistant (budget is missing):
 
 ```json
-{"reply":"What is your budget for dinner?","candidates":[],"candidate_count":0,"next_state":"LISTENING","actions":["SHOW_STATE"]}
+{
+  "reply": "今晚的预算大约是多少？",
+  "candidates": [],
+  "candidate_count": 0,
+  "next_state": "LISTENING",
+  "actions": ["SHOW_STATE"]
+}
 ```

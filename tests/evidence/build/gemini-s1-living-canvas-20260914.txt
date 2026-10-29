@@ -3,7 +3,7 @@ Recorded: 2026-09-14 Asia/Shanghai
 Completed: 2026-09-14 11:45:25 UTC
 
 Source
-  workspace: /home/abby/openvela-workspace
+  workspace: <OPENVELA_WORKSPACE>
   manifest branch: dev-ai-contest-2026
   team application commit: 0c6aa748bf58d81a5a76dc47f49d251eb11160c7
   Gemini-S1 AI/Living Canvas board commit: 657aa2c0
@@ -18,7 +18,7 @@ Configuration
 
 Compatibility environment
   QEMU_LD_PREFIX=/usr/x86_64-linux-gnu
-  QEMU_SET_ENV=LD_LIBRARY_PATH=/home/abby/.local/share/openvela-x86_64-jammy/root/lib/x86_64-linux-gnu
+  QEMU_SET_ENV=LD_LIBRARY_PATH=<HOME>/.local/share/openvela-x86_64-jammy/root/lib/x86_64-linux-gnu
 
 Build
   command: ./build.sh vendor/allwinnertech/boards/r528/r528s3-gemini-s1/configs/nsh_minidisplay/ -e -Wno-error -j2

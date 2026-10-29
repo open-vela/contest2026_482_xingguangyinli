@@ -1,6 +1,7 @@
 /build/
 /data/
 /generated/*.rgb565
+/generated/living_canvas_private_config.h
 *.bin
 *.elf
 *.map

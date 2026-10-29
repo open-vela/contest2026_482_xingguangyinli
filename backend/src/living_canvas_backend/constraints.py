@@ -32,7 +32,7 @@ def check_candidate(
     taboo = _first_match(constraints.diet_taboos, searchable)
     if taboo:
         reasons.append("diet_taboo:" + taboo)
-    dislike = _first_match(constraints.dislikes, searchable)
+    dislike = _first_match(constraints.dislikes, searchable + [candidate.cuisine, candidate.temperature])
     if dislike:
         reasons.append("dislike:" + dislike)
 

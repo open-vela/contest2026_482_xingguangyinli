@@ -8,5 +8,6 @@ config LVX_USE_DEMO_CONTEST2026_482_LIVING_CANVAS
 	select LV_USE_CANVAS
 	select LV_USE_IMAGE
 	select LV_USE_QRCODE
+	select NETUTILS_CJSON
 	---help---
 		Enable the team 482 Living Canvas application core.

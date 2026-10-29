@@ -1,189 +1,92 @@
 # 画间 Living Canvas
 
-**一幅会生活、也会在需要时帮你做决定的交互画。**
+星光引力｜2026 首届 openvela AI 硬件全球开发者大赛｜AI 硬件产品创新
 
-画间 Living Canvas 由星光引力 Starlight Gravity 发起。项目把实体绘画、局部动态屏幕、原创角色与设备端 AI Agent 组合成家居艺术装置。第一条端到端体验聚焦晚餐：收集预算和明确限制，给出不超过三个可执行候选，等待用户确认，再把确认结果用于画面、灯光和可删除的偏好记忆。
+画间是一套以实体画框为主形态的家庭共享空间 AI 系统。Gemini S1 运行 openvela，负责界面、确认、语音会话和安全边界；毫米波仅提供匿名 presence 事件；两只 ESP32 猫形配件只负责角色化触摸签到。当前主场景是晚餐协商：系统收集预算与明确限制，给出不超过三个候选，只有用户在画框上明确确认后，才生成手机接续页面；仓库代码不执行付款。
 
-当前开发节点为 2026 首届 openvela AI 硬件开发者大赛。主控目标是 Gemini-S1（Allwinner R528S3），软件路线为 openvela、LVGL 与 ai_agent。
+## 事实状态
 
-当前比赛 P0 只承诺一条可验收链路：画面中的比格犬协调“帮我点外卖”，美短猫读取口味记忆，用户在画框上二次确认后，用手机继续核对并付款。推荐、约束复核、确认与手机交接均由本仓库内独立的 Living Canvas Decision Backend 提供。鸽子、小猪和外星人分别保留给天气/提醒、食材/轻营养、探索/盲盒视角；它们是同一个主 Agent 的前台角色，不是五套各自持有权限的 Agent。
+本分支是决赛软件候选，不把宿主测试、目标构建或历史硬件结果写成最新真机验收。
 
-> 状态更新：2026-09-29。Gemini-S1/openvela 应用、状态机、ai_agent 安全桥接、自定义 Skill、LVGL 界面和独立决策后端已经形成可重复测试的工程版本；12 个严格 C 主机测试与 34 个后端自动化测试通过。脱敏的 240×320 竖屏完整 NAND 镜像已在 Gemini-S1 真机完成全擦写、逐阶段校验和自动重启，openvela 已从 NAND 启动。Living Canvas 背景与外卖、盲盒、在家吃饭三个选择卡已在实体 SPI 屏以正向竖屏、正确比例和完整可视区域显示。竖屏触摸坐标和公开项目二维码可读性仍按独立门禁验证。详见 `docs/GEMINI_S1_ADAPTATION.md`。
+- 已有：openvela 主控应用源码、双猫局域网协议、毫米波过滤、录音/ASR/TTS 客户端、结构化推荐后端、显式确认状态机、可删除偏好记忆、自动化测试与隐私门禁。
+- 已验证：相关软件模块的宿主测试；本轮 UDP/TCP 回环用例因测试沙箱禁止端口绑定而明确跳过，不计为通过。历史 Gemini S1 显示/触控与旧版 ESP32 原型结果另有记录。
+- 尚未在本分支证明：最新候选固件已刷入 Gemini S1、最新双猫固件已同时烧录、毫米波已接入最终硬件、真实麦克风到扬声器的整条 v29 闭环。
+- AI Coding 日志不会自动上传；`logs/` 仅接受官方工具导出且人工脱敏后的真实会话。本分支不以空日志冒充已提交日志。
 
-## 一、作品简介
+详细边界见 [`docs/FINALS_SUBMISSION_STATUS.md`](docs/FINALS_SUBMISSION_STATUS.md)。
 
-画中的猫和朋友平时安静生活；用户需要时，可以通过触摸或语音开始晚餐协商。系统将当天意愿与长期偏好分开处理：临时的“不吃辣”不会自动变成永久记忆，只有用户确认后，明确选择保存的稳定偏好才会写入本地存储。
-
-核心安全边界：
-
-- 模型只返回受限结构化结果，不能直接开灯、写记忆、下单、运行设备命令或处理付款。
-- 过敏、预算、是否做饭和临时口味在本地再次校验。
-- 推荐最多三个候选；信息不足时追问，不编造价格、库存、配料或配送时间。
-- 未同步时间显示 `--:--`，不伪造时刻。
-- 网络错误、取消和重复存在事件都有确定的退出/冷却路径。
-- 凭据不进入源码、文档、测试证据或 AI Coding 日志。
-
-## 二、选题方向
-
-**AI 硬件产品创新。**
-
-项目重点不是把聊天界面搬到屏幕，而是让 AI 的结果经过本地约束与用户确认后，安全地驱动画面、声音和低压实体交互。Gemini-S1 始终作为主控；毫米波、触摸和摄像头等外设逐项验证，未验证的能力不会进入演示承诺。
-
-## 三、赛题要求对应
-
-| 赛题能力 | Living Canvas 的实现 |
-| --- | --- |
-| openvela + ai_agent | 团队 manifest 将应用映射进 openvela；官方 VelaClaw 客户端桥接只接收有界文本结果，设备动作仍由本地规则复核 |
-| 自定义 Skill | `app/hello_app/skills/dinner-assistant.md` 按 ai_agent 官方格式定义触发、步骤、候选数量和确认边界；目标部署到 `/data/agent/skills/dinner-assistant.md` |
-| AI 开发 Skill | `skills/gemini-s1-firmware-acceptance/SKILL.md` 复用 Gemini-S1 竖屏固件的源码、构建、封包、隐私与真机验收门禁；与产品运行时 Skill 分开 |
-| 主动感知 | 存在事件触发 `IDLE → GREETING`，并用冷却逻辑避免重复打扰 |
-| 执行场景 | 只有用户明确确认后，系统才生成灯光意图、手机交接和可删除偏好记忆；模型不能直接执行付款或设备命令 |
-| 端云协同 | 设备端负责状态机、硬约束复核、确认和界面；独立后端负责候选、会话与手机交接；网络失败时走确定性回退 |
-| 记忆 | 临时意愿与长期偏好分离，稳定偏好只在确认后保存，并支持查看、纠正和删除 |
-| 智能家居与 LVGL | 自定义角色状态、选择、二维码和灯光意图已经进入目标源码与构建；Gemini-S1 真机链路按适配门禁逐项验收 |
-
-这里的“实现”指仓库代码与相应测试；实体板端完成度单独列在 `docs/GEMINI_S1_ADAPTATION.md`，不以构建结果替代真机运行结果。
-
-## 四、目录结构
+## 系统边界
 
 ```text
-app/hello_app/
-  include/                 固定边界的核心接口
-  src/                     纯 C 状态、时钟、晚餐、记忆、UI、语音与 Agent 安全桥接
-  skills/                  可部署到 ai_agent 的 Dinner Assistant Skill
-  tests/host/              可在 Mac/Linux 重复运行的主机测试
-docs/                      环境、设备基线、Gemini-S1 适配、恢复与构建门禁
-skills/                    可复用的 Gemini-S1 固件验收开发 Skill
-scripts/device/            只读 USB/ADB 身份与证据脚本
-tests/evidence/            脱敏的真实环境和设备证据
-logs/                      经人工审查后提交的赛事 AI Coding 日志
-demo/esp32s3_preview/      辅助交互原型源码与独立测试
+毫米波 presence ─┐
+双猫触摸签到 ────┼─> Gemini S1 / openvela ─> 本地状态机与显式确认
+麦克风语音 ──────┘              │
+                                 └─> Decision Backend ─> 候选/ASR/TTS
+                                                      └─> 手机接续（不付款）
 ```
 
-赛事 manifest 将 `app/hello_app/` 映射到：
+- Gemini S1 是唯一 openvela 主控；ESP32 是可降级配件。
+- 模型只返回受限结构化结果，不能直接写记忆、控制硬件、下单或付款。
+- 预算、过敏、临时口味、是否做饭等约束由确定性代码再次校验。
+- 临时意愿只属于当前会话；长期偏好必须在确认后保存，并可查看、纠正和删除。
+- 毫米波不上传图像，只产生去抖后的匿名 presence 布尔事件。
+- 主控 owner/product 与 voice API 在当前候选中共用一个板端 token；accessory 使用独立 token，且运行时拒绝二者取相同值。凭据不得进入源码、测试输出或 AI 日志。
+
+## 代码结构
+
+```text
+app/hello_app/              Gemini S1/openvela 主应用
+  include/ + src/           状态机、显示、语音、配件、隐私 HTTP/TLS
+  skills/                   Dinner Assistant 运行时契约与可复用 Skill
+  tests/host/               C/Python/Shell 宿主测试与回环测试入口
+backend/                    结构化推荐、会话、鉴权、语音和配件 API
+demo/esp32s3_preview/       双猫配件固件、角色 UI、本地协议与测试
+scripts/                    软件门禁和只读设备检查工具
+```
+
+赛事 manifest 将 `app/hello_app/` 映射到 openvela 工作区的：
 
 ```text
 packages/demos/contest2026_482_hello_app/
 ```
 
-## 五、运行方式
+## 关键实现
 
-### 1. 当前可重复的主机测试
+1. **主控状态机**：从 presence/触摸/语音进入问候、监听、推荐、确认和接续；取消、超时、迟到响应及网络错误都有确定退出路径。
+2. **本地安全复核**：结构化候选进入画框前，再经过预算、过敏、辣度、烹饪意愿、URL 和动作白名单检查。
+3. **双猫协议**：角色、设备身份、序列号、事件和确认码均有边界；主控可分别轮询两只配件并处理重复/乱序消息。
+4. **毫米波隐私链**：串口原始帧经严格解析、阈值、去抖和冷却后才变成 presence；不采集影像。
+5. **原生语音链**：PCM 录音、会话票据、取消/超时、ASR/TTS 请求和播放生命周期分离，迟到任务不能覆盖新会话。
+6. **后端原子性**：会话、推荐、确认、记忆和手机接续有鉴权与原子更新测试；失败时不产生半确认状态。
+7. **自定义 Skill**：`app/hello_app/skills/dinner_assistant/SKILL.md` 定义候选数量、事实边界、确认和记忆规则。目标运行时位置按当前 ai_agent 约定为 `/data/agent/skills/`；仓库校验不等同于真机已加载。
 
-在本仓根目录执行：
+## 可重复验证
 
 ```bash
 make -C app/hello_app/tests/host clean test
-bash app/hello_app/tests/host/test_build_metadata.sh
-bash app/hello_app/tests/host/test_lc_ui_build.sh
-```
-
-测试覆盖：
-
-- `IDLE → GREETING → LISTENING → THINKING → RECOMMENDATION → CONFIRMED`；
-- 取消、网络错误恢复、确认写入保护和存在事件冷却；
-- 00:00、03:00、06:30、12:00、23:59 的时针/分针角度；
-- 未同步时间不显示伪造时刻；
-- 忌口、预算、临时不辣和“不想做饭”的过滤；
-- 未知或高权限模型动作被拒绝；
-- 只有确认后的稳定偏好写入，支持清除和版本化文件往返；
-- UI 状态、猫咪睁闭眼和二维码可见性。
-- Agent 输入、回复、超时和单请求并发边界；
-- 官方 VelaClaw 客户端桥接、错误回退与迟到回复拒绝。
-
-### 2. 设备身份检查
-
-macOS 上只读执行：
-
-```bash
-bash scripts/device/verify_usb_inventory.sh
-```
-
-Gemini-S1 必须唯一匹配序列号 `1234` 与 USB 身份 `18d1:4e11 / NuttX / Debug Bridge`。外设断开时会明确显示 `MISSING`；`--require-all` 仅用于完整硬件盘点。
-
-### 3. Living Canvas 后台闭环检查
-
-先在本仓根目录启动独立后端：
-
-```bash
-PYTHONPATH=backend/src python -m uvicorn living_canvas_backend.app:app \
-  --host 127.0.0.1 --port 8765
-```
-
-再开一个终端执行：
-
-```bash
-./scripts/host/verify_living_canvas_backend.py \
-  --base-url http://127.0.0.1:8765
-```
-
-脚本会真实创建 Gemini-S1 会话，以比赛演示默认值（1 人、50 元、30 分钟）获得一个候选，模拟板端二次确认，检查外卖跳转，并验证短二维码地址能以 HTTP 307 接到同一会话的手机页。脚本不会提交付款。
-
-### 4. openvela 构建与 Gemini-S1 适配
-
-官方未修改基线以及 AI Agent + Living Canvas 产品固件均已构建成功；最新目标源码包含受限录音会话、Agent 安全状态机、官方 VelaClaw 桥接、`--agent-prompt` 受限入口，以及 `living_canvas --ui-preview` 离线安全预览。预览模式不连接模型、不采集音视频、不触发设备动作。实体板已经完成 USB/ADB、麦克风、FEL、SPI NAND、完整写入、NAND 启动、SPI 显示、触摸事件和 Living Canvas 作品界面验证。准确状态见：
-
-- `docs/ENVIRONMENT_SETUP.md`
-- `docs/BUILD_AND_FLASH.md`
-- `docs/DEVICE_BASELINE.md`
-- `docs/GEMINI_S1_ADAPTATION.md`
-- `docs/SKILL_DEMO.md`
-- `docs/RECOVERY.md`
-
-当前状态为 `FULL_FLASH_VERIFIED / OPENVELA_BOOT_VERIFIED / SPI_DISPLAY_VERIFIED / PORTRAIT_UI_VERIFIED`。最新真机验证已完成脱敏竖屏整包的 NAND 写入、逐阶段校验和自动重启；Living Canvas 背景、三个选择卡和默认高亮已在 240×320 实体屏正向、等比例、完整显示。横屏配置下的触摸事件已经验证；竖屏触摸坐标、公开项目二维码、音频、网络和 ai_agent 板端运行仍按独立门禁逐项验证。
-
-### 5. 辅助交互原型（非 openvela 运行证据）
-
-`demo/esp32s3_preview/` 保留一个独立竖屏触控原型，用于复核界面、触摸选择和产品流程。它不作为 Gemini-S1/openvela 的板端运行证据。运行其自动化测试：
-
-```bash
+PYTHONPATH=backend/src python -m pytest -q backend/tests
 bash demo/esp32s3_preview/tests/run_tests.sh
+python -m pytest -q scripts/host/tests scripts/device/tests
+git diff --check
 ```
 
-板卡依赖、构建、烧录和校验步骤见 `demo/esp32s3_preview/README.md` 与 `demo/esp32s3_preview/docs/FLASH_VERIFICATION.md`。
+测试数量以当前提交的实际输出为准，不把不同测试套件简单相加成单一覆盖率。需要真实设备、真实供应商或 Caddy 的用例会明确跳过或失败关闭。
 
-## 六、AI Coding 使用说明
+## 构建说明
 
-AI 协作目前用于需求拆解、风险边界、官方资料核对、测试先行实现、失败证据保留、隐私扫描和文档整理。每个核心模块先观察预期失败，再写最小实现，并同时运行严格编译警告与 sanitizer。
+openvela 目标应用入口为 `CONFIG_LVX_USE_DEMO_CONTEST2026_482_LIVING_CANVAS`。`app/hello_app/CMakeLists.txt` 和 `Makefile` 列出主控源码；中文界面字体由 `tools/convert_room_font.py` 从固定 SHA-256 的 Noto Sans CJK SC 源文件生成，字体数据遵循随仓 `Noto-OFL.txt`。
 
-赛事官方日志采集器已按队伍身份安装，模板自带的虚拟日志已移除。只有从 openvela 工作区内启动、由组委会工具自动采集并经人工审阅的真实会话才会进入 `logs/`。任何含密码、API Key、私人路径、个人文件或无关对话的会话都不得提交。详情见 `docs/LOGGING_SETUP.md`。
+ESP32 配件不是 openvela 主控证据。其构建、烧录和交付验证工具位于 `demo/esp32s3_preview/`，真实 Wi-Fi、设备 token、MAC、串口和备份必须保存在仓库外。
 
-## 七、当前验证状态
+## 许可证与隐私
 
-| 能力 | 状态 | 证据 |
-| --- | --- | --- |
-| Gemini-S1 USB/ADB 身份 | 已验证（只读） | `tests/evidence/device/` |
-| Ubuntu 22.04 ARM64、4 核、8 GB | 已验证 | `tests/evidence/build/` |
-| 核心纯 C 逻辑 | 12 个严格主机测试通过 | `app/hello_app/tests/host/` |
-| Living Canvas 决策后端 | 34 个 pytest 自动化测试通过 | `backend/tests/` |
-| 辅助交互原型 | 11 个 Python 用例及 2 个原生测试程序通过；不作为 openvela 运行证据 | `demo/esp32s3_preview/tests/` |
-| openvela 全量同步与 ARM64/兼容主机工具 | 已验证 | `docs/ENVIRONMENT_SETUP.md` |
-| AI Agent + Living Canvas 固件构建 | 已通过（含 Agent 安全桥接） | `tests/evidence/build/gemini-s1-living-canvas-agent-20260915.txt` |
-| 当前产品源码目标构建 | 已通过（12 项主机门禁、目标链接和整包校验） | `tests/evidence/build/gemini-s1-product-20260918.txt` |
-| Gemini-S1 NAND 整包 | 已生成、离线校验，并于 2026-09-26 完成真机全量烧录与逐阶段校验 | `tests/evidence/device/gemini-s1-full-flash-runtime-20260926.txt` |
-| Gemini-S1 LVGL / Living Canvas 实体屏 | SPI LCD framebuffer、横屏触摸事件与作品界面均已验证 | `tests/evidence/device/gemini-s1-spi-display-runtime-20260927.txt` |
-| Gemini-S1 240×320 竖屏运行 | 脱敏整包完成全擦写、逐阶段校验和 NAND 启动；背景、三个选择卡与默认高亮在实体屏正向、等比例、完整显示 | `tests/evidence/device/gemini-s1-portrait-runtime-20260929.txt` |
-| 千问 qwen3.8-max 最小连通 | 已验证（Mac、非敏感固定探针） | `tests/evidence/integration/qwen3.8-max-connectivity-20260915.txt` |
-| 小米 MiMo v2.5 最小连通 | 已验证（Mac、非敏感固定探针） | `tests/evidence/integration/mimo-v2.5-connectivity-20260915.txt` |
-| Gemini-S1 板载麦克风采集通路 | 已验证（仅非内容信号） | `tests/evidence/device/gemini-microphone-signal-20260914.txt` |
-| Gemini-S1 FEL 与 SPI NAND | 芯片、256 MiB NAND、写入前只读备份已验证 | `tests/evidence/device/gemini-s1-fel-spinand-20260920.txt` |
-| LVGL 真机运行时 | RGB565 `/dev/fb0`、实体屏刷新和 240×320 竖屏 UI 已验证；竖屏触摸坐标待独立复核 | `tests/evidence/device/gemini-s1-spi-display-runtime-20260927.txt`、`tests/evidence/device/gemini-s1-portrait-runtime-20260929.txt` |
-| 音频播放、网络、ai_agent 板端运行时 | 继续按独立门禁验证 | `docs/GEMINI_S1_ADAPTATION.md` |
-| 毫米波、MPR121、灯光、摄像头 | 未接入 | 外设保持断开 |
-| 未修改 Gemini-S1 基线构建 | 已通过 | `docs/BUILD_AND_FLASH.md` |
-| 持久化写入与 NAND 启动 | 完整烧录、逐阶段校验、自动重启及 NSH 启动均已通过 | `tests/evidence/device/gemini-s1-full-flash-runtime-20260926.txt` |
+- 团队源码按顶层 `LICENSE` 的 Apache License 2.0 发布。
+- Noto 字体衍生数据遵循 SIL Open Font License 1.1。
+- 不提交 API key、Wi-Fi、私钥、owner/accessory token、个人路径、家庭地址、设备备份、原始语音、付款数据或未授权素材。
+- 公共仓库中的示例地址和凭据必须是不可用占位符。
 
-## 八、隐私与许可证
+## 官方资料
 
-- 不提交 Wi-Fi 密码、模型 Token、Ubuntu 密码、SSH 私钥、家庭原始影像或付款信息。
-- 用户记忆须可查看、纠正和删除；临时意愿与长期偏好分开保存。
-- 宠物快报只有在真实图像和时间证据存在时才描述事件。
-- 第三方字体、图片、音频和代码在进入最终演示前逐项记录来源与授权。
-
-## 参考
-
-- [openvela 官方文档](https://github.com/open-vela/docs)
-- [AI 硬件赛道教程](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/ai_hardware/ai_hardware_guide_index.md)
-- [AI Coding 日志归集与提交手册](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/ai_coding_log_guide.md)
-- [Gemini-S1 板级说明](https://github.com/open-vela/vendor_allwinnertech/blob/dev-ai-contest-2026/boards/r528/r528s3-gemini-s1/README_zh-cn.md)
-- [本队官方赛事仓](https://github.com/open-vela/contest2026_482_xingguangyinli)
+- [openvela AI 硬件赛道指南](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/ai_hardware/ai_hardware_track_guide.md)
+- [参赛代码提交指南](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/code_submission_guide.md)
+- [AI Coding 日志提交指南](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/ai_coding_log_guide.md)

@@ -8,7 +8,7 @@ int main(void) {
   uint8_t temp[qrcodegen_BUFFER_LEN_FOR_VERSION(8)];
   uint8_t qr[qrcodegen_BUFFER_LEN_FOR_VERSION(8)];
   bool ok = qrcodegen_encodeText(
-      "https://github.com/abbyxu123/xiaomi-Living-Canvas", temp, qr,
+      "https://github.com/open-vela/contest2026_482_xingguangyinli", temp, qr,
       qrcodegen_Ecc_LOW, 1, 8, qrcodegen_Mask_AUTO, true);
   assert(ok);
   int size = qrcodegen_getSize(qr);

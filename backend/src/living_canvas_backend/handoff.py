@@ -3,10 +3,9 @@ from urllib.parse import urlencode, urlparse
 
 
 PLATFORMS: Dict[str, tuple] = {
-    "eleme": ("https://www.ele.me/search", "keyword"),
-    "meituan": ("https://www.meituan.com/s/", "q"),
+    "eleme": ("https://h5.ele.me/search/", "keyword"),
 }
-ALLOWED_HOSTS = {"www.ele.me", "www.meituan.com"}
+ALLOWED_HOSTS = {"h5.ele.me"}
 
 
 def build_platform_search_url(platform: str, search_query: str) -> str:

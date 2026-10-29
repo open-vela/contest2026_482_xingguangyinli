@@ -65,12 +65,17 @@ lc_actions_t lc_state_handle(lc_state_machine_t *machine,
             machine->state = LC_STATE_GREETING;
             machine->last_greeting_ms = now_ms;
             machine->has_greeted = true;
-            return LC_ACTION_SHOW_STATE;
+            return LC_ACTION_SHOW_STATE | LC_ACTION_PLAY_GREETING;
           }
         break;
 
       case LC_STATE_GREETING:
-        if (event == LC_EVENT_USER_START)
+        if (event == LC_EVENT_GREETING_FINISHED)
+          {
+            machine->state = LC_STATE_IDLE;
+            return LC_ACTION_SHOW_STATE;
+          }
+        else if (event == LC_EVENT_USER_START)
           {
             machine->state = LC_STATE_LISTENING;
             return LC_ACTION_SHOW_STATE | LC_ACTION_START_CAPTURE;
@@ -89,7 +94,7 @@ lc_actions_t lc_state_handle(lc_state_machine_t *machine,
         if (event == LC_EVENT_AI_RESULT)
           {
             machine->state = LC_STATE_RECOMMENDATION;
-            return LC_ACTION_SHOW_STATE | LC_ACTION_SHOW_QR;
+            return LC_ACTION_SHOW_STATE;
           }
         break;
 
@@ -97,7 +102,8 @@ lc_actions_t lc_state_handle(lc_state_machine_t *machine,
         if (event == LC_EVENT_CONFIRM)
           {
             machine->state = LC_STATE_CONFIRMED;
-            return LC_ACTION_SHOW_STATE | LC_ACTION_SET_LIGHT |
+            return LC_ACTION_SHOW_STATE | LC_ACTION_SHOW_QR |
+                   LC_ACTION_SET_LIGHT |
                    LC_ACTION_SAVE_CONFIRMED_MEMORY;
           }
         break;

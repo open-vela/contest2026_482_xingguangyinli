@@ -15,7 +15,7 @@ Access boundary
 - UI automation was unavailable in this environment.
 
 Actions not taken
-- No files were copied into /home/abby/openvela-workspace.
+- No files were copied into the openvela source workspace.
 - No openvela target build was started.
 - No target image or hash was produced.
 - No flash, erase, repartition, recovery, or device write was attempted.

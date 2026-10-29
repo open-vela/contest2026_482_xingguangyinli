@@ -11,7 +11,7 @@ This document records observed state. The official openvela workspace has been s
 - Memory: 16 GB
 - macOS: Ventura 13.2.1
 - Free host storage after the verified baseline backup: about 188 GiB
-- Project path: `/Users/<USER>/Desktop/xiaomi-openvela-ibbie`
+- Project path: `/path/to/xiaomi-openvela-ibbie`
 
 The project directory uses the ASCII-only name `xiaomi-openvela-ibbie` to reduce quoting and tool-path risk. All commands and documentation use this canonical English path. Local installers, VM data, full source workspaces, build artifacts, and backups remain below ignored `local-setup/` or in the Ubuntu guest.
 
@@ -25,9 +25,9 @@ The project directory uses the ASCII-only name `xiaomi-openvela-ibbie` to reduce
 - RAM: 8 GB configured; guest reports 7.7 GiB
 - Swap: 3.8 GiB
 - Root filesystem after expansion: 123 GiB total, 72 GiB available after the baseline build
-- Network: UTM shared network; guest address was `192.168.64.2` at last check and may change after restart
+- Network: UTM shared network; resolve the current guest address after each restart instead of committing it
 - Access: SSH public-key authentication for this development session; passwordless sudo is not configured
-- Source root: `/home/abby/openvela-workspace`
+- Source root: `/path/to/openvela-workspace`
 
 The installer ISO is ejected. Source lives on the Ubuntu virtual disk, not in a macOS shared folder. Ubuntu Server's text console is expected; a desktop environment is unnecessary for builds.
 
@@ -52,7 +52,7 @@ The official `repo` launcher SHA-256 is `1211b57b57e4122a9c546295a59b37d24068f11
 - Manifest branch: `dev-ai-contest-2026`
 - Team manifest revision: `224850b197da7837e60b45573af26a479d366dd9`
 - `repo sync -c -j2`: completed successfully
-- Pinned manifest: `/home/abby/openvela-workspace/pinned-manifest.xml`
+- Pinned manifest: `/path/to/openvela-workspace/pinned-manifest.xml`
 - Workspace size after sync and baseline build: about 38 GiB
 - Before AI integration, `distclean` plus exact restoration of known tracked build side effects left the intended source repositories clean.
 - A full post-build `repo status` is expected to contain manifest linkfile/nested-project overlays and generated dependency/object files, so it is not described as globally clean.

@@ -1,7 +1,7 @@
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
 
 class StrictModel(BaseModel):
@@ -61,6 +61,12 @@ class SessionState(str, Enum):
     CANCELLED = "cancelled"
 
 
+class MealChoice(str, Enum):
+    TAKEOUT = "takeout"
+    MYSTERY = "mystery"
+    HOME = "home"
+
+
 class DecisionSession(StrictModel):
     session_id: str
     state: SessionState = SessionState.CREATED
@@ -68,6 +74,7 @@ class DecisionSession(StrictModel):
     hard_constraints: HardConstraints = Field(default_factory=HardConstraints)
     soft_preferences: SoftPreferences = Field(default_factory=SoftPreferences)
     recommendation: Optional[Recommendation] = None
+    rejected_candidate_ids: List[str] = Field(default_factory=list)
     metadata: Dict[str, str] = Field(default_factory=dict)
 
 
@@ -94,9 +101,41 @@ class BoardInputRequest(StrictModel):
     soft_preferences: SoftPreferences = Field(default_factory=SoftPreferences)
 
 
+class DialogueRequest(StrictModel):
+    session_id: str
+    choice: MealChoice
+    transcript: str = Field(min_length=1, max_length=500)
+    reject_current: bool = False
+
+    @field_validator("transcript")
+    @classmethod
+    def transcript_must_contain_speech(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("transcript_empty")
+        return value
+
+
+class RoleContribution(StrictModel):
+    role_id: str = Field(pattern="^(beagle|cat|pigeon|pig|alien)$")
+    summary: str = Field(min_length=1, max_length=160)
+
+
 class DeviceEventRequest(StrictModel):
     session_id: str
     event: str
+
+
+class AccessoryEventRequest(StrictModel):
+    device_id: Literal["cat_a", "cat_b", "mmwave_bridge"]
+    session_id: str = Field(
+        min_length=1,
+        max_length=23,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    )
+    sequence: StrictInt = Field(ge=1, le=2_147_483_647)
+    event: Literal["checkin", "presence"]
+    value: StrictBool
 
 
 class ConfirmRequest(StrictModel):

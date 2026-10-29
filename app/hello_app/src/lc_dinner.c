@@ -10,8 +10,7 @@ static bool has_terminator(const char *text, size_t capacity)
 
 bool lc_dinner_validate_result(const lc_dinner_result_t *result)
 {
-  const lc_actions_t allowed_actions =
-    LC_ACTION_SHOW_STATE | LC_ACTION_SHOW_QR;
+  const lc_actions_t allowed_actions = LC_ACTION_SHOW_STATE;
   size_t index;
 
   if (result == NULL || result->candidate_count > LC_DINNER_MAX_CANDIDATES)
@@ -20,12 +19,6 @@ bool lc_dinner_validate_result(const lc_dinner_result_t *result)
     }
 
   if ((result->actions & ~allowed_actions) != 0u)
-    {
-      return false;
-    }
-
-  if (result->candidate_count == 0u &&
-      (result->actions & LC_ACTION_SHOW_QR) != 0u)
     {
       return false;
     }
@@ -116,7 +109,7 @@ lc_dinner_status_t lc_dinner_select(const lc_dinner_candidate_t *catalog,
     }
 
   result->next_state = LC_STATE_RECOMMENDATION;
-  result->actions = LC_ACTION_SHOW_STATE | LC_ACTION_SHOW_QR;
+  result->actions = LC_ACTION_SHOW_STATE;
   snprintf(result->reply, sizeof(result->reply),
            "Here are %u dinner options that match.",
            (unsigned int)result->candidate_count);

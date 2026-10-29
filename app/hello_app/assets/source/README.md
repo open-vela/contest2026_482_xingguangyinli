@@ -1,8 +1,9 @@
 # Approved Gemini S1 Choice Artwork
 
-The source artwork is supplied outside the public repository and selected with
-`LC_CHOICE_ASSET_SOURCE_DIR`. It is accepted only when its size and SHA-256
-match `tools/convert_choice_assets.py`.
+The private source-artwork directory is supplied through
+`LC_CHOICE_SOURCE_DIR` and is accepted only when every size and SHA-256 matches
+`tools/convert_choice_assets.py`. The repository never records a contributor's
+home-directory path.
 
 - `sitting.png`: full-screen background.
 - `takeout_bag_ui.png`: primary “help me order takeout” choice.

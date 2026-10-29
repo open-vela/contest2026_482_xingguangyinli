@@ -73,6 +73,8 @@ int main(void)
 {
   lc_agent_session_t session;
   lc_agent_bridge_t *bridge;
+  void (*late_callback)(int, const char *, void *);
+  void *late_cookie;
   char reply[64];
 
   reset_fake();
@@ -118,8 +120,23 @@ int main(void)
   assert(bridge != NULL);
   assert(lc_agent_bridge_ask(bridge, "timeout", 3000u, 1000u) ==
          LC_AGENT_OK);
+  late_callback = g_callback;
+  late_cookie = g_cookie;
   assert(lc_agent_bridge_poll(bridge, 4000u) == LC_AGENT_TIMEOUT);
+  assert(!lc_agent_bridge_can_retry(bridge));
   assert(!lc_agent_bridge_close(bridge));
+  assert(lc_agent_bridge_ask(bridge, "too early", 4001u, 1000u) ==
+         LC_AGENT_BUSY);
+  late_callback(0, "late reply", late_cookie);
+  assert(lc_agent_bridge_can_retry(bridge));
+  assert(lc_agent_bridge_ask(bridge, "retry after timeout", 4001u, 1000u) ==
+         LC_AGENT_OK);
+  assert(strcmp(g_request_text, "retry after timeout") == 0);
+  g_callback(0, "fresh reply", g_cookie);
+  assert(lc_agent_bridge_copy_reply(bridge, reply, sizeof(reply)) ==
+         LC_AGENT_OK);
+  assert(strcmp(reply, "fresh reply") == 0);
+  assert(lc_agent_bridge_close(bridge));
 
   reset_fake();
   assert(lc_agent_init(&session));
