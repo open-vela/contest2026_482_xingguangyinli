@@ -23,6 +23,14 @@ c++ -std=c++17 -Wall -Wextra -Werror \
 
 c++ -std=c++17 -Wall -Wextra -Werror \
   -I"$project_dir/src" \
+  "$project_dir/tests/test_network_policy.cpp" \
+  "$project_dir/src/living_canvas_network_policy.cpp" \
+  -o "$build_dir/test_network_policy"
+
+"$build_dir/test_network_policy"
+
+c++ -std=c++17 -Wall -Wextra -Werror \
+  -I"$project_dir/src" \
   "$project_dir/tests/test_cat_ui.cpp" \
   "$project_dir/src/living_canvas_cat_ui.cpp" \
   -o "$build_dir/test_cat_ui"

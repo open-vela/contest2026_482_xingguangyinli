@@ -46,6 +46,9 @@ def _generator_environment(device_id: str, key: str,
         "LC_WIFI_SSID",
         "LC_WIFI_PASSWORD",
         "LC_LOCAL_S1_HOST",
+        "LC_WIFI_FALLBACK_SSID",
+        "LC_WIFI_FALLBACK_PASSWORD",
+        "LC_LOCAL_FALLBACK_HOST",
         "LC_LOCAL_S1_PORT",
     ):
         value = os.environ.get(name, "")

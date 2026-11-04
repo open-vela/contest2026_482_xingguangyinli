@@ -15,6 +15,7 @@
 #include "src/living_canvas_cat_ui.h"
 #include "src/living_canvas_input_policy.h"
 #include "src/living_canvas_local_link.h"
+#include "src/living_canvas_network_policy.h"
 #include "src/living_canvas_render_policy.h"
 
 #if __has_include("generated/living_canvas_private_config.h")
@@ -26,6 +27,9 @@
 #define LC_WIFI_SSID ""
 #define LC_WIFI_PASSWORD ""
 #define LC_LOCAL_S1_HOST ""
+#define LC_WIFI_FALLBACK_SSID ""
+#define LC_WIFI_FALLBACK_PASSWORD ""
+#define LC_LOCAL_FALLBACK_HOST ""
 #define LC_LOCAL_S1_PORT 0
 #define LC_LOCAL_PAIRING_KEY_HEX ""
 #endif
@@ -34,6 +38,15 @@
 // configured local link unless every new field is explicitly present.
 #ifndef LC_LOCAL_S1_HOST
 #define LC_LOCAL_S1_HOST ""
+#endif
+#ifndef LC_WIFI_FALLBACK_SSID
+#define LC_WIFI_FALLBACK_SSID ""
+#endif
+#ifndef LC_WIFI_FALLBACK_PASSWORD
+#define LC_WIFI_FALLBACK_PASSWORD ""
+#endif
+#ifndef LC_LOCAL_FALLBACK_HOST
+#define LC_LOCAL_FALLBACK_HOST ""
 #endif
 #ifndef LC_LOCAL_S1_PORT
 #define LC_LOCAL_S1_PORT 0
@@ -53,6 +66,7 @@ TouchDrvCST816 touch;
 WiFiUDP localUdp;
 LivingCanvasLocalLink *localLink = nullptr;
 LivingCanvasCatUi catUi(LC_CAT_DEVICE_ID);
+LivingCanvasNetworkPolicy networkPolicy(12000u);
 
 bool touchReady = false;
 bool touchWasDown = false;
@@ -181,7 +195,11 @@ static void drawCatCompanionScreen(uint32_t nowMs, bool force) {
 static bool checkinConfigured() {
   return LC_HAS_PRIVATE_CONFIG && LC_CAT_DEVICE_ID[0] != '\0' &&
          LC_WIFI_SSID[0] != '\0' && LC_WIFI_PASSWORD[0] != '\0' &&
-         LC_LOCAL_S1_HOST[0] != '\0' && LC_LOCAL_S1_PORT >= 1024 &&
+         LC_LOCAL_S1_HOST[0] != '\0' &&
+         LC_WIFI_FALLBACK_SSID[0] != '\0' &&
+         LC_WIFI_FALLBACK_PASSWORD[0] != '\0' &&
+         LC_LOCAL_FALLBACK_HOST[0] != '\0' &&
+         LC_LOCAL_S1_PORT >= 1024 &&
          std::strlen(LC_LOCAL_PAIRING_KEY_HEX) ==
              LIVING_CANVAS_LOCAL_KEY_BYTES * 2;
 }
@@ -220,6 +238,55 @@ static bool localHmac(
                          message, messageLength, output) == 0;
 }
 
+static void closeLocalUdp() {
+  if (localUdpReady) localUdp.stop();
+  localUdpReady = false;
+}
+
+static void beginActiveNetwork(uint32_t nowMs) {
+  (void)nowMs;
+  closeLocalUdp();
+  WiFi.disconnect(false, false);
+  const char *ssid =
+      networkPolicy.select(LC_WIFI_SSID, LC_WIFI_FALLBACK_SSID);
+  const char *password =
+      networkPolicy.select(LC_WIFI_PASSWORD, LC_WIFI_FALLBACK_PASSWORD);
+  WiFi.begin(ssid, password);
+  USBSerial.printf("[WIFI] slot=%u connecting status=%d\n",
+                   static_cast<unsigned>(networkPolicy.activeSlot()),
+                   static_cast<int>(WiFi.status()));
+}
+
+static void updateCheckinNetwork(uint32_t nowMs) {
+  const bool connected = WiFi.status() == WL_CONNECTED;
+  if (connected) {
+    if (!networkPolicy.connected()) {
+      networkPolicy.observeConnected();
+      USBSerial.printf("[WIFI] slot=%u connected status=%d\n",
+                       static_cast<unsigned>(networkPolicy.activeSlot()),
+                       static_cast<int>(WiFi.status()));
+    }
+    if (!localUdpReady) {
+      localUdpReady = localUdp.begin(0) != 0;
+      if (localUdpReady) {
+        USBSerial.println("[CHECKIN] local datagram socket ready");
+      }
+    }
+    return;
+  }
+
+  if (networkPolicy.connected()) {
+    closeLocalUdp();
+    networkPolicy.observeDisconnected(nowMs);
+    USBSerial.printf("[WIFI] slot=%u disconnected status=%d\n",
+                     static_cast<unsigned>(networkPolicy.activeSlot()),
+                     static_cast<int>(WiFi.status()));
+  }
+  if (!networkPolicy.shouldRotate(nowMs)) return;
+  networkPolicy.rotate(nowMs);
+  beginActiveNetwork(nowMs);
+}
+
 static void startCheckinNetwork() {
   if (!checkinConfigured()) return;
   uint8_t pairingKey[LIVING_CANVAS_LOCAL_KEY_BYTES];
@@ -241,7 +308,9 @@ static void startCheckinNetwork() {
     return;
   }
   WiFi.mode(WIFI_STA);
-  WiFi.begin(LC_WIFI_SSID, LC_WIFI_PASSWORD);
+  const uint32_t nowMs = millis();
+  networkPolicy.begin(nowMs);
+  beginActiveNetwork(nowMs);
   USBSerial.println("[CHECKIN] authenticated local link started");
 }
 
@@ -272,12 +341,7 @@ static void receiveLocalAcks(uint32_t nowMs) {
 static void deliverPendingCheckin(uint32_t nowMs) {
   if (localLink == nullptr) return;
 
-  if (WiFi.status() == WL_CONNECTED && !localUdpReady) {
-    localUdpReady = localUdp.begin(0) != 0;
-    if (localUdpReady) {
-      USBSerial.println("[CHECKIN] local datagram socket ready");
-    }
-  }
+  updateCheckinNetwork(nowMs);
   receiveLocalAcks(nowMs);
 
   const LivingCanvasLocalLinkState beforeUpdate = localLink->state();
@@ -290,20 +354,28 @@ static void deliverPendingCheckin(uint32_t nowMs) {
   }
 
   if (!localLink->shouldSend(nowMs)) return;
+  if (WiFi.status() != WL_CONNECTED || !localUdpReady) return;
   char request[LIVING_CANVAS_LOCAL_PACKET_MAX];
   const bool formatted = localLink->formatRequest(request, sizeof(request));
-  if (formatted && WiFi.status() == WL_CONNECTED && localUdpReady &&
-      localUdp.beginPacket(LC_LOCAL_S1_HOST,
-                           static_cast<uint16_t>(LC_LOCAL_S1_PORT)) == 1) {
-    localUdp.write(reinterpret_cast<const uint8_t *>(request),
-                   std::strlen(request));
-    localUdp.endPacket();
+  bool sent = false;
+  if (formatted) {
+    const char *receiverHost = networkPolicy.select(LC_LOCAL_S1_HOST,
+                                                     LC_LOCAL_FALLBACK_HOST);
+    if (localUdp.beginPacket(receiverHost,
+                             static_cast<uint16_t>(LC_LOCAL_S1_PORT)) == 1) {
+      const std::size_t requestLength = std::strlen(request);
+      const std::size_t written = localUdp.write(
+          reinterpret_cast<const uint8_t *>(request), requestLength);
+      sent = localUdp.endPacket() == 1 && written == requestLength;
+    }
   }
   localLink->markSent(nowMs);
+  if (!sent) USBSerial.println("[CHECKIN] local datagram send failed");
 }
 
 static void handleTap(int16_t x, int16_t y, uint32_t nowMs) {
   if (localLink != nullptr) {
+    if (!localUdpReady || WiFi.status() != WL_CONNECTED) return;
     const LivingCanvasCatUiState uiState = catUi.state();
     bool started = false;
     if (uiState == LivingCanvasCatUiState::Idle) {

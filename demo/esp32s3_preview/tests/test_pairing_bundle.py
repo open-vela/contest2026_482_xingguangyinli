@@ -27,6 +27,9 @@ class PairingBundleTest(unittest.TestCase):
             "LC_WIFI_SSID": "synthetic-network",
             "LC_WIFI_PASSWORD": "synthetic-password",
             "LC_LOCAL_S1_HOST": "192.168.50.2",
+            "LC_WIFI_FALLBACK_SSID": "synthetic-fallback",
+            "LC_WIFI_FALLBACK_PASSWORD": "fallback-password",
+            "LC_LOCAL_FALLBACK_HOST": "192.168.60.3",
             "LC_LOCAL_S1_PORT": "18765",
             "LC_CAT_A_PAIRING_KEY_HEX": "1a" * 32,
             "LC_CAT_B_PAIRING_KEY_HEX": "2b" * 32,
@@ -64,10 +67,19 @@ class PairingBundleTest(unittest.TestCase):
             cat_b_text = cat_b.read_text(encoding="utf-8")
             self.assertIn('#define LC_CAT_DEVICE_ID "cat_a"', cat_a_text)
             self.assertIn('#define LC_CAT_DEVICE_ID "cat_b"', cat_b_text)
+            self.assertIn(
+                '#define LC_WIFI_FALLBACK_SSID "synthetic-fallback"', cat_a_text
+            )
+            self.assertIn(
+                '#define LC_LOCAL_FALLBACK_HOST "192.168.60.3"', cat_b_text
+            )
             self.assertIn(environment["LC_CAT_A_PAIRING_KEY_HEX"], cat_a_text)
             self.assertIn(environment["LC_CAT_B_PAIRING_KEY_HEX"], cat_b_text)
             self.assertNotIn("LC_ACCESSORY_DEVICE_TOKEN", cat_a_text + cat_b_text)
             self.assertNotIn(environment["LC_WIFI_PASSWORD"], stdout.getvalue())
+            self.assertNotIn(
+                environment["LC_WIFI_FALLBACK_PASSWORD"], stdout.getvalue()
+            )
             self.assertNotIn(environment["LC_CAT_A_PAIRING_KEY_HEX"], stdout.getvalue())
             self.assertNotIn(environment["LC_CAT_B_PAIRING_KEY_HEX"], stdout.getvalue())
 

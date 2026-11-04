@@ -86,13 +86,27 @@ class SourceBoundaryTest(unittest.TestCase):
         self.assertIn('#include <WiFiUdp.h>', sketch)
         self.assertIn('#include <mbedtls/md.h>', sketch)
         self.assertIn('#include "src/living_canvas_local_link.h"', sketch)
+        self.assertIn('#include "src/living_canvas_network_policy.h"', sketch)
         self.assertIn('LivingCanvasLocalLink *localLink', sketch)
         self.assertIn('localLink->beginCheckin(nowMs)', sketch)
         self.assertIn('localLink->retry(nowMs)', sketch)
-        self.assertIn('localUdp.beginPacket(LC_LOCAL_S1_HOST,', sketch)
+        self.assertRegex(
+            sketch,
+            r'networkPolicy\.select\(LC_LOCAL_S1_HOST,\s*'
+            r'LC_LOCAL_FALLBACK_HOST\)',
+        )
+        self.assertIn('LC_WIFI_FALLBACK_SSID', sketch)
+        self.assertIn('LC_WIFI_FALLBACK_PASSWORD', sketch)
+        self.assertIn('networkPolicy.shouldRotate(nowMs)', sketch)
+        self.assertIn('localUdp.stop()', sketch)
+        self.assertIn(
+            'if (!localUdpReady || WiFi.status() != WL_CONNECTED) return;',
+            sketch,
+        )
         self.assertIn('localLink->acceptAck(', sketch)
         self.assertIn('mbedtls_md_hmac(', sketch)
         self.assertNotIn('setInsecure', sketch)
+        self.assertNotRegex(sketch, r'USBSerial\.(?:print|printf).*LC_WIFI_')
         self.assertNotIn("LivingCanvasScreen::Home", sketch)
         self.assertNotIn("drawHome(", sketch)
         self.assertIn(
@@ -131,9 +145,12 @@ class SourceBoundaryTest(unittest.TestCase):
         self.assertIn("livingCanvasCatRenderPlan", sketch)
         self.assertIn('"SETUP REQUIRED"', render_policy)
         self.assertIn('"CONNECTING TO FRAME"', render_policy)
-        self.assertIn('"TAP TO CHECK IN"', render_policy)
-        self.assertIn('"TELLING THE FRAME"', render_policy)
-        self.assertIn('"FRAME RECEIVED IT"', render_policy)
+        self.assertIn('"TAP TO SAY HI"', render_policy)
+        self.assertIn('"ONE CAT, ONE FAMILY MEMBER"', render_policy)
+        self.assertIn('"SAYING HI TO FRAME"', render_policy)
+        self.assertIn('"SIGNED SOCIAL EVENT"', render_policy)
+        self.assertIn('"FRAME SAYS HI BACK"', render_policy)
+        self.assertIn('"SIGNED REPLY VERIFIED"', render_policy)
         self.assertIn('"NO RESPONSE"', render_policy)
         self.assertNotIn("TAP TO HIGHLIGHT - TAP AGAIN TO OPEN", sketch)
 

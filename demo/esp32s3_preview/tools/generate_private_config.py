@@ -33,37 +33,57 @@ def c_string(value: str) -> str:
     )
 
 
+def validated_ssid(name: str, environment: Mapping[str, str]) -> str:
+    value = required(name, environment)
+    if len(value.encode("utf-8")) > 32:
+        raise ValueError(f"invalid {name}")
+    return value
+
+
+def validated_password(name: str, environment: Mapping[str, str]) -> str:
+    value = required(name, environment)
+    if (
+        not 8 <= len(value) <= 63
+        or any(ord(char) < 0x20 or ord(char) > 0x7E for char in value)
+    ):
+        raise ValueError(f"invalid {name}")
+    return value
+
+
+def validated_private_ipv4(name: str, environment: Mapping[str, str]) -> str:
+    value = required(name, environment)
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError as error:
+        raise ValueError(f"invalid {name}") from error
+    if (
+        address.version != 4
+        or not address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_unspecified
+    ):
+        raise ValueError(f"invalid {name}")
+    return str(address)
+
+
 def validate(environment: Mapping[str, str] | None = None) -> dict[str, str]:
     environment = os.environ if environment is None else environment
     device_id = required("LC_CAT_DEVICE_ID", environment)
     if device_id not in ("cat_a", "cat_b"):
         raise ValueError("invalid LC_CAT_DEVICE_ID")
 
-    ssid = required("LC_WIFI_SSID", environment)
-    if len(ssid.encode("utf-8")) > 32:
-        raise ValueError("invalid LC_WIFI_SSID")
-
-    password = required("LC_WIFI_PASSWORD", environment)
-    if (
-        not 8 <= len(password) <= 63
-        or any(ord(char) < 0x20 or ord(char) > 0x7E for char in password)
-    ):
-        raise ValueError("invalid LC_WIFI_PASSWORD")
-
-    local_host = required("LC_LOCAL_S1_HOST", environment)
-    try:
-        local_address = ipaddress.ip_address(local_host)
-    except ValueError as error:
-        raise ValueError("invalid LC_LOCAL_S1_HOST") from error
-    if (
-        local_address.version != 4
-        or not local_address.is_private
-        or local_address.is_loopback
-        or local_address.is_link_local
-        or local_address.is_multicast
-        or local_address.is_unspecified
-    ):
-        raise ValueError("invalid LC_LOCAL_S1_HOST")
+    ssid = validated_ssid("LC_WIFI_SSID", environment)
+    password = validated_password("LC_WIFI_PASSWORD", environment)
+    local_host = validated_private_ipv4("LC_LOCAL_S1_HOST", environment)
+    fallback_ssid = validated_ssid("LC_WIFI_FALLBACK_SSID", environment)
+    fallback_password = validated_password(
+        "LC_WIFI_FALLBACK_PASSWORD", environment
+    )
+    fallback_host = validated_private_ipv4(
+        "LC_LOCAL_FALLBACK_HOST", environment
+    )
 
     local_port_text = required("LC_LOCAL_S1_PORT", environment)
     try:
@@ -81,7 +101,10 @@ def validate(environment: Mapping[str, str] | None = None) -> dict[str, str]:
         "LC_CAT_DEVICE_ID": device_id,
         "LC_WIFI_SSID": ssid,
         "LC_WIFI_PASSWORD": password,
-        "LC_LOCAL_S1_HOST": str(local_address),
+        "LC_LOCAL_S1_HOST": local_host,
+        "LC_WIFI_FALLBACK_SSID": fallback_ssid,
+        "LC_WIFI_FALLBACK_PASSWORD": fallback_password,
+        "LC_LOCAL_FALLBACK_HOST": fallback_host,
         "LC_LOCAL_S1_PORT": str(local_port),
         "LC_LOCAL_PAIRING_KEY_HEX": local_pairing_key_hex,
     }
@@ -133,6 +156,9 @@ def verify_header(path: pathlib.Path, expected_device_id: str) -> None:
         "LC_WIFI_SSID",
         "LC_WIFI_PASSWORD",
         "LC_LOCAL_S1_HOST",
+        "LC_WIFI_FALLBACK_SSID",
+        "LC_WIFI_FALLBACK_PASSWORD",
+        "LC_LOCAL_FALLBACK_HOST",
         "LC_LOCAL_S1_PORT",
         "LC_LOCAL_PAIRING_KEY_HEX",
     )

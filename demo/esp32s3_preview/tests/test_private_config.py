@@ -30,6 +30,9 @@ class PrivateConfigTest(unittest.TestCase):
             "LC_WIFI_SSID": "synthetic-network",
             "LC_WIFI_PASSWORD": "synthetic-password",
             "LC_LOCAL_S1_HOST": "192.168.50.2",
+            "LC_WIFI_FALLBACK_SSID": "synthetic-fallback",
+            "LC_WIFI_FALLBACK_PASSWORD": "fallback-password",
+            "LC_LOCAL_FALLBACK_HOST": "192.168.60.3",
             "LC_LOCAL_S1_PORT": "18765",
             "LC_LOCAL_PAIRING_KEY_HEX": "ab" * 32,
         }
@@ -50,12 +53,21 @@ class PrivateConfigTest(unittest.TestCase):
             self.assertIn('#define LC_CAT_DEVICE_ID "cat_a"', generated)
             self.assertIn('#define LC_WIFI_SSID "synthetic-network"', generated)
             self.assertIn('#define LC_LOCAL_S1_HOST "192.168.50.2"', generated)
+            self.assertIn(
+                '#define LC_WIFI_FALLBACK_SSID "synthetic-fallback"', generated
+            )
+            self.assertIn(
+                '#define LC_LOCAL_FALLBACK_HOST "192.168.60.3"', generated
+            )
             self.assertIn('#define LC_LOCAL_S1_PORT 18765', generated)
             self.assertIn(
                 '#define LC_LOCAL_PAIRING_KEY_HEX "' + "ab" * 32 + '"',
                 generated,
             )
             self.assertNotIn(environment["LC_WIFI_PASSWORD"], stdout.getvalue())
+            self.assertNotIn(
+                environment["LC_WIFI_FALLBACK_PASSWORD"], stdout.getvalue()
+            )
             self.assertNotIn(
                 environment["LC_LOCAL_PAIRING_KEY_HEX"], stdout.getvalue()
             )
@@ -127,6 +139,26 @@ class PrivateConfigTest(unittest.TestCase):
                     module.OUTPUT.unlink(missing_ok=True)
                     environment = self.valid_environment()
                     environment["LC_WIFI_PASSWORD"] = password
+                    with mock.patch.dict(os.environ, environment, clear=True):
+                        with contextlib.redirect_stderr(io.StringIO()):
+                            self.assertEqual(module.main(), 2)
+                    self.assertFalse(module.OUTPUT.exists())
+
+    def test_rejects_invalid_fallback_network_contract(self):
+        module = load_generator()
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            module.OUTPUT = root / "living_canvas_private_config.h"
+            for name, value in (
+                ("LC_WIFI_FALLBACK_SSID", "x" * 33),
+                ("LC_WIFI_FALLBACK_PASSWORD", "short"),
+                ("LC_LOCAL_FALLBACK_HOST", "8.8.8.8"),
+                ("LC_LOCAL_FALLBACK_HOST", "127.0.0.1"),
+            ):
+                with self.subTest(name=name, value=value):
+                    module.OUTPUT.unlink(missing_ok=True)
+                    environment = self.valid_environment()
+                    environment[name] = value
                     with mock.patch.dict(os.environ, environment, clear=True):
                         with contextlib.redirect_stderr(io.StringIO()):
                             self.assertEqual(module.main(), 2)
@@ -267,6 +299,9 @@ class DeviceBuildTest(unittest.TestCase):
                 "LC_WIFI_SSID": "synthetic-network",
                 "LC_WIFI_PASSWORD": "synthetic-password",
                 "LC_LOCAL_S1_HOST": "192.168.50.2",
+                "LC_WIFI_FALLBACK_SSID": "synthetic-fallback",
+                "LC_WIFI_FALLBACK_PASSWORD": "fallback-password",
+                "LC_LOCAL_FALLBACK_HOST": "192.168.60.3",
                 "LC_LOCAL_S1_PORT": "18765",
                 "LC_LOCAL_PAIRING_KEY_HEX": "ab" * 32,
                 "LC_FIRMWARE_BUILDER": str(fake_builder),
@@ -310,6 +345,9 @@ class DeviceBuildTest(unittest.TestCase):
                 '#define LC_WIFI_SSID "synthetic-network"\n'
                 '#define LC_WIFI_PASSWORD "synthetic-password"\n'
                 '#define LC_LOCAL_S1_HOST "192.168.50.2"\n'
+                '#define LC_WIFI_FALLBACK_SSID "synthetic-fallback"\n'
+                '#define LC_WIFI_FALLBACK_PASSWORD "fallback-password"\n'
+                '#define LC_LOCAL_FALLBACK_HOST "192.168.60.3"\n'
                 '#define LC_LOCAL_S1_PORT 18765\n'
                 '#define LC_LOCAL_PAIRING_KEY_HEX "' + "1a" * 32 + '"\n',
                 encoding="utf-8",
@@ -410,6 +448,9 @@ class DeviceBuildTest(unittest.TestCase):
                 "LC_WIFI_SSID": "synthetic-network",
                 "LC_WIFI_PASSWORD": "synthetic-password",
                 "LC_LOCAL_S1_HOST": "192.168.50.2",
+                "LC_WIFI_FALLBACK_SSID": "synthetic-fallback",
+                "LC_WIFI_FALLBACK_PASSWORD": "fallback-password",
+                "LC_LOCAL_FALLBACK_HOST": "192.168.60.3",
                 "LC_LOCAL_S1_PORT": "18765",
                 "LC_LOCAL_PAIRING_KEY_HEX": "ab" * 32,
                 "LC_FIRMWARE_BUILDER": str(fake_builder),
